@@ -1,0 +1,918 @@
+"use client"
+
+import { useState, useEffect, useCallback } from "react"
+import {
+  ShieldAlert, Eye, EyeOff, Users, TrendingUp, DollarSign,
+  Search, ChevronRight, X, CheckCircle2, AlertTriangle,
+  SlidersHorizontal, Trash2, UserCheck, UserX, RefreshCw,
+  PlusCircle, MinusCircle, Save, ChevronDown, BarChart2,
+  Lock, Database, Copy, ExternalLink,
+} from "lucide-react"
+import type { CRMUser, UserStatus, AccountMode } from "@/lib/user-store"
+import { userStore } from "@/lib/user-store"
+import { cn } from "@/lib/utils"
+
+const API_TOKEN = typeof window !== "undefined" ? (localStorage.getItem("et_admin_unlocked") === "1" ? (process.env.NEXT_PUBLIC_ADMIN_SECRET ?? "admin123") : "admin123") : "admin123"
+
+async function apiFetch(path: string, opts?: RequestInit) {
+  return fetch(path, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-token": "admin123",
+      ...(opts?.headers ?? {}),
+    },
+  })
+}
+
+const ADMIN_KEY = "et_admin_unlocked"
+const ADMIN_PASSWORD = "1234567890"
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+type Tab = "overview" | "users" | "setup"
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function fmt(n: number) {
+  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n)
+}
+function fmtDate(iso: string | null) {
+  if (!iso) return "—"
+  return new Date(iso).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })
+}
+
+const STATUS_LABEL: Record<UserStatus, string> = { active: "Ativo", suspended: "Suspenso", pending: "Pendente" }
+const STATUS_COLOR: Record<UserStatus, string> = {
+  active: "bg-green-500/15 text-green-400 border-green-500/30",
+  suspended: "bg-red-500/15 text-red-400 border-red-500/30",
+  pending: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+}
+const KYC_LABEL = { unverified: "Não verificado", pending: "Em análise", verified: "Verificado" }
+const KYC_COLOR = {
+  unverified: "text-muted-foreground",
+  pending: "text-yellow-400",
+  verified: "text-green-400",
+}
+
+// ─── Login Screen ─────────────────────────────────────────────────────────────
+function LoginScreen({ onUnlock }: { onUnlock: () => void }) {
+  const [password, setPassword] = useState("")
+  const [showPass, setShowPass] = useState(false)
+  const [error, setError]       = useState("")
+
+  function handleUnlock() {
+    if (password === ADMIN_PASSWORD) {
+      localStorage.setItem(ADMIN_KEY, "1")
+      onUnlock()
+    } else {
+      setError("Senha incorreta")
+    }
+  }
+
+  return (
+    <div className="h-screen flex items-center justify-center p-6 bg-background">
+      <div className="w-full max-w-xs space-y-5">
+        <div className="text-center">
+          <ShieldAlert className="w-10 h-10 text-accent mx-auto mb-2" />
+          <h1 className="text-xl font-bold text-foreground">Painel Admin</h1>
+        </div>
+        <div className="relative">
+          <input
+            type={showPass ? "text" : "password"}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleUnlock()}
+            placeholder="Senha"
+            autoFocus
+            className="w-full px-4 pr-10 py-3 border border-border rounded-xl bg-card text-sm text-foreground outline-none focus:border-accent"
+          />
+          <button type="button" onClick={() => setShowPass(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        </div>
+        {error && <p className="text-xs text-red-500 text-center">{error}</p>}
+        <button onClick={handleUnlock}
+          className="w-full py-3 bg-accent text-accent-foreground rounded-xl font-bold hover:bg-accent/90 transition-all active:scale-95">
+          Entrar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+function StatCard({ icon: Icon, label, value, sub, color = "text-accent" }: {
+  icon: React.ElementType; label: string; value: string | number; sub?: string; color?: string
+}) {
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <Icon className={cn("w-4 h-4", color)} />
+        <span className="text-xs text-muted-foreground">{label}</span>
+      </div>
+      <div className="text-xl font-bold text-foreground">{value}</div>
+      {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  )
+}
+
+// ─── User Edit Drawer ─────────────────────────────────────────────────────────
+function UserDrawer({ user, onClose, onSave }: {
+  user: CRMUser
+  onClose: () => void
+  onSave: (u: CRMUser) => void
+}) {
+  const [form, setForm] = useState<CRMUser>({ ...user })
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved]   = useState(false)
+  const [adjustDelta, setAdjustDelta] = useState("")
+  const [adjustDir, setAdjustDir]     = useState<"add" | "sub">("add")
+  const [tab, setTab] = useState<"info" | "financeiro" | "overrides" | "notas">("info")
+
+  function set<K extends keyof CRMUser>(key: K, value: CRMUser[K]) {
+    setForm(f => ({ ...f, [key]: value }))
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    // 1. Guardar localmente
+    userStore.update(form.id, form)
+    // 2. Persistir no Supabase via API
+    try {
+      await apiFetch(`/api/admin/users/${form.id}`, {
+        method:  "PATCH",
+        body:    JSON.stringify({
+          firstName:           form.firstName,
+          lastName:            form.lastName,
+          phone:               form.phone,
+          country:             form.country,
+          kycStatus:           form.kycStatus,
+          mode:                form.mode,
+          status:              form.status,
+          balance:             form.balance,
+          leverage:            form.leverage,
+          currency:            form.currency,
+          balanceOverride:     form.balanceOverride,
+          marginLevelOverride: form.marginLevelOverride,
+          equityOverride:      form.equityOverride,
+          adminNotes:          form.adminNotes,
+        }),
+      })
+    } catch { /* silencioso: sempre guarda localmente */ }
+    onSave(form)
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  function handleAdjust() {
+    const delta = parseFloat(adjustDelta)
+    if (isNaN(delta) || delta <= 0) return
+    const actual = adjustDir === "add" ? delta : -delta
+    const newBal = Math.max(0, form.balance + actual)
+    set("balance", newBal)
+    setAdjustDelta("")
+  }
+
+  const tabs = [
+    { id: "info", label: "Dados" },
+    { id: "financeiro", label: "Financeiro" },
+    { id: "overrides", label: "Overrides" },
+    { id: "notas", label: "Notas" },
+  ] as const
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="w-full max-w-md bg-card border-l border-border flex flex-col shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div>
+            <div className="font-semibold text-foreground">{form.firstName} {form.lastName}</div>
+            <div className="text-xs text-muted-foreground">{form.email}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={cn("px-2 py-0.5 rounded-full text-xs font-medium border", STATUS_COLOR[form.status])}>
+              {STATUS_LABEL[form.status]}
+            </span>
+            <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-border shrink-0">
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={cn(
+                "flex-1 py-2.5 text-xs font-medium transition-colors",
+                tab === t.id
+                  ? "border-b-2 border-accent text-accent"
+                  : "text-muted-foreground hover:text-foreground"
+              )}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+
+          {/* ── Dados ── */}
+          {tab === "info" && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Nome" value={form.firstName} onChange={v => set("firstName", v)} />
+                <Field label="Apelido" value={form.lastName} onChange={v => set("lastName", v)} />
+              </div>
+              <Field label="Email" value={form.email} onChange={v => set("email", v)} type="email" />
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Telefone" value={form.phone} onChange={v => set("phone", v)} />
+                <Field label="País" value={form.country} onChange={v => set("country", v)} />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">KYC</label>
+                <select value={form.kycStatus} onChange={e => set("kycStatus", e.target.value as CRMUser["kycStatus"])}
+                  className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm text-foreground outline-none focus:border-accent">
+                  <option value="unverified">Não verificado</option>
+                  <option value="pending">Em análise</option>
+                  <option value="verified">Verificado</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Estado da conta</label>
+                <div className="flex gap-2">
+                  {(["active", "suspended", "pending"] as UserStatus[]).map(s => (
+                    <button key={s} onClick={() => set("status", s)}
+                      className={cn(
+                        "flex-1 py-2 rounded-lg border text-xs font-medium transition-colors",
+                        form.status === s
+                          ? STATUS_COLOR[s]
+                          : "border-border text-muted-foreground hover:border-muted"
+                      )}>
+                      {STATUS_LABEL[s]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-0.5">
+                  <div className="text-xs text-muted-foreground">Registado em</div>
+                  <div className="text-sm font-medium text-foreground">{fmtDate(form.createdAt)}</div>
+                </div>
+                <div className="space-y-0.5">
+                  <div className="text-xs text-muted-foreground">Último login</div>
+                  <div className="text-sm font-medium text-foreground">{fmtDate(form.lastLogin)}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Financeiro ── */}
+          {tab === "financeiro" && (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Modalidade</label>
+                <div className="flex gap-2">
+                  {(["demo", "real"] as AccountMode[]).map(m => (
+                    <button key={m} onClick={() => set("mode", m)}
+                      className={cn(
+                        "flex-1 py-2 rounded-lg border text-xs font-semibold uppercase transition-colors",
+                        form.mode === m
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-border text-muted-foreground hover:border-muted"
+                      )}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-muted/40 border border-border rounded-xl p-4 space-y-3">
+                <div className="text-xs font-semibold text-foreground">Saldo base</div>
+                <div className="text-2xl font-bold text-foreground">${fmt(form.balance)}</div>
+                <div className="flex gap-2">
+                  <div className="flex-1 flex gap-1">
+                    <button onClick={() => setAdjustDir("add")}
+                      className={cn("p-2 rounded-lg border text-xs transition-colors",
+                        adjustDir === "add" ? "border-green-500 bg-green-500/10 text-green-400" : "border-border text-muted-foreground hover:border-muted")}>
+                      <PlusCircle className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => setAdjustDir("sub")}
+                      className={cn("p-2 rounded-lg border text-xs transition-colors",
+                        adjustDir === "sub" ? "border-red-500 bg-red-500/10 text-red-400" : "border-border text-muted-foreground hover:border-muted")}>
+                      <MinusCircle className="w-4 h-4" />
+                    </button>
+                    <input
+                      type="number"
+                      value={adjustDelta}
+                      onChange={e => setAdjustDelta(e.target.value)}
+                      placeholder="valor"
+                      className="flex-1 px-3 py-2 border border-border rounded-lg bg-background text-sm text-foreground outline-none focus:border-accent"
+                    />
+                  </div>
+                  <button onClick={handleAdjust}
+                    className="px-4 py-2 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:bg-accent/90 transition-colors">
+                    Aplicar
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">Ajusta o saldo base. Use Overrides para controlar a exibição.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Alavancagem" value={String(form.leverage)} onChange={v => set("leverage", parseInt(v) || 200)} type="number" />
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Moeda</label>
+                  <select value={form.currency} onChange={e => set("currency", e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm text-foreground outline-none focus:border-accent">
+                    <option>USD</option><option>EUR</option><option>GBP</option><option>BRL</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-0.5">
+                  <div className="text-xs text-muted-foreground">Total depositado</div>
+                  <div className="text-sm font-bold text-green-400">${fmt(form.totalDeposited)}</div>
+                </div>
+                <div className="space-y-0.5">
+                  <div className="text-xs text-muted-foreground">Total levantado</div>
+                  <div className="text-sm font-bold text-red-400">${fmt(form.totalWithdrawn)}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Overrides ── */}
+          {tab === "overrides" && (
+            <div className="space-y-4">
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+                <p className="text-xs text-yellow-300 font-medium">Overrides controlam o que o cliente VÊ no ecrã.</p>
+                <p className="text-xs text-yellow-300/70 mt-0.5">Deixe em branco para usar os valores reais calculados.</p>
+              </div>
+
+              <OverrideField
+                label="Saldo exibido ($)"
+                value={form.balanceOverride}
+                onChange={v => set("balanceOverride", v)}
+                placeholder="Ex: 1 250 000 (vazio = saldo real)"
+              />
+              <OverrideField
+                label="Capital Próprio exibido ($)"
+                value={form.equityOverride}
+                onChange={v => set("equityOverride", v)}
+                placeholder="Ex: 1 248 500 (vazio = calculado)"
+              />
+              <OverrideField
+                label="Nível de margem exibido (%)"
+                value={form.marginLevelOverride}
+                onChange={v => set("marginLevelOverride", v)}
+                placeholder="Ex: 3500 (vazio = automático)"
+              />
+
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">Pré-definidos rápidos — Margem</div>
+                <div className="flex flex-wrap gap-2">
+                  {[5000, 3500, 2000, 1200, 800, 500, 300].map(v => (
+                    <button key={v} onClick={() => set("marginLevelOverride", v)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors",
+                        form.marginLevelOverride === v
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-border text-muted-foreground hover:border-accent/40"
+                      )}>
+                      {v}%
+                    </button>
+                  ))}
+                  <button onClick={() => { set("marginLevelOverride", null); set("equityOverride", null); set("balanceOverride", null) }}
+                    className="px-2.5 py-1 rounded-lg border border-border text-xs text-muted-foreground hover:border-red-400 hover:text-red-400 transition-colors">
+                    Limpar todos
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Notas ── */}
+          {tab === "notas" && (
+            <div className="space-y-3">
+              <label className="text-xs font-medium text-muted-foreground">Notas internas (visível apenas ao admin)</label>
+              <textarea
+                value={form.adminNotes}
+                onChange={e => set("adminNotes", e.target.value)}
+                placeholder="Notas sobre este utilizador, acordos, observações..."
+                rows={10}
+                className="w-full px-3 py-2.5 border border-border rounded-xl bg-background text-sm text-foreground outline-none focus:border-accent resize-none"
+              />
+              <p className="text-xs text-muted-foreground">As notas são armazenadas localmente e visíveis apenas neste painel.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-border px-5 py-4 flex gap-3 shrink-0">
+          <button onClick={handleSave}
+            className="flex-1 flex items-center justify-center gap-2 py-3 bg-accent text-accent-foreground rounded-xl font-bold hover:bg-accent/90 transition-all active:scale-95">
+            {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+            {saving ? "A guardar…" : saved ? "Guardado!" : "Guardar alterações"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Field helpers ────────────────────────────────────────────────────────────
+function Field({ label, value, onChange, type = "text" }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <input type={type} value={value} onChange={e => onChange(e.target.value)}
+        className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm text-foreground outline-none focus:border-accent" />
+    </div>
+  )
+}
+
+function OverrideField({ label, value, onChange, placeholder }: {
+  label: string; value: number | null; onChange: (v: number | null) => void; placeholder: string
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <div className="flex gap-2">
+        <input
+          type="number"
+          value={value ?? ""}
+          onChange={e => onChange(e.target.value === "" ? null : parseFloat(e.target.value))}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-2 border border-border rounded-lg bg-background text-sm text-foreground outline-none focus:border-accent"
+        />
+        {value !== null && (
+          <button onClick={() => onChange(null)}
+            className="px-3 py-2 rounded-lg border border-border text-muted-foreground hover:text-red-400 hover:border-red-400 transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Setup Tab ───────────────────────────────────────────────────────────────
+const REPAIR_SQL = `-- Corra este SQL no Supabase SQL Editor (uma vez apenas)
+-- URL: https://supabase.com/dashboard/project/rekcdczbitcxaxcncrxi/sql/new
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email text NOT NULL UNIQUE, first_name text NOT NULL DEFAULT '',
+  last_name text NOT NULL DEFAULT '', phone text DEFAULT '',
+  country text DEFAULT '', city text DEFAULT '', address text DEFAULT '',
+  postal_code text DEFAULT '', nationality text DEFAULT '',
+  kyc_status text NOT NULL DEFAULT 'unverified'
+    CHECK (kyc_status IN ('unverified','pending','verified')),
+  profile_completion integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.accounts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  mode text NOT NULL DEFAULT 'demo' CHECK (mode IN ('demo','real')),
+  balance numeric(18,2) NOT NULL DEFAULT 100000.00,
+  leverage integer NOT NULL DEFAULT 200, currency text NOT NULL DEFAULT 'USD',
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','pending')),
+  created_at timestamptz NOT NULL DEFAULT now(), UNIQUE (user_id, mode)
+);
+
+CREATE TABLE IF NOT EXISTS public.admin_overrides (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
+  balance_override numeric(18,2), margin_level_override numeric(10,2),
+  equity_override numeric(18,2),
+  force_close_positions boolean NOT NULL DEFAULT false,
+  balance_adjustment numeric(18,2),
+  note text DEFAULT '',
+  updated_by text NOT NULL DEFAULT 'admin',
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Adicionar colunas novas se a tabela já existir
+ALTER TABLE public.admin_overrides
+  ADD COLUMN IF NOT EXISTS force_close_positions boolean NOT NULL DEFAULT false;
+ALTER TABLE public.admin_overrides
+  ADD COLUMN IF NOT EXISTS balance_adjustment numeric(18,2);
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, first_name, last_name)
+  VALUES (NEW.id, NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'first_name', COALESCE(NEW.raw_user_meta_data->>'given_name','')),
+    COALESCE(NEW.raw_user_meta_data->>'last_name',  COALESCE(NEW.raw_user_meta_data->>'family_name','')))
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO public.accounts (user_id, mode, balance)
+  VALUES (NEW.id, 'demo', 100000.00) ON CONFLICT (user_id, mode) DO NOTHING;
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RAISE LOG 'handle_new_user error for %: %', NEW.email, SQLERRM;
+  RETURN NEW;
+END; $$;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- RLS
+ALTER TABLE profiles          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE accounts          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admin_overrides   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE positions         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions      ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "profiles_own"      ON profiles;
+DROP POLICY IF EXISTS "accounts_own"      ON accounts;
+DROP POLICY IF EXISTS "positions_own"     ON positions;
+DROP POLICY IF EXISTS "transactions_own"  ON transactions;
+DROP POLICY IF EXISTS "overrides_read_own" ON admin_overrides;
+
+CREATE POLICY "profiles_own"      ON profiles        FOR ALL  USING (auth.uid() = id);
+CREATE POLICY "accounts_own"      ON accounts        FOR ALL  USING (auth.uid() = user_id);
+CREATE POLICY "positions_own"     ON positions       FOR ALL  USING (auth.uid() = user_id);
+CREATE POLICY "transactions_own"  ON transactions    FOR ALL  USING (auth.uid() = user_id);
+CREATE POLICY "overrides_read_own" ON admin_overrides FOR SELECT USING (auth.uid() = user_id);`
+
+function SetupTab() {
+  const [copied, setCopied] = useState(false)
+  const [testResult, setTestResult] = useState<"idle" | "ok" | "error">("idle")
+  const [testing, setTesting]       = useState(false)
+
+  async function testConnection() {
+    setTesting(true)
+    try {
+      const res = await apiFetch("/api/admin/users")
+      const json = await res.json()
+      setTestResult(json.success && json.source === "supabase" ? "ok" : "error")
+    } catch { setTestResult("error") }
+    setTesting(false)
+  }
+
+  function copySQL() {
+    navigator.clipboard.writeText(REPAIR_SQL)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="p-6 space-y-6 max-w-3xl">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground flex items-center gap-2"><Database className="w-5 h-5 text-accent" /> Configuração da Base de Dados</h2>
+        <p className="text-sm text-muted-foreground mt-1">Configure o trigger do Supabase para que o registo de utilizadores funcione corretamente.</p>
+      </div>
+
+      {/* Status */}
+      <div className="flex items-center gap-3 p-4 bg-card border border-border rounded-xl">
+        <div className="flex-1">
+          <p className="text-sm font-medium text-foreground">Ligar ao Supabase</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Verifica se a base de dados está acessível</p>
+        </div>
+        {testResult === "ok"    && <span className="flex items-center gap-1.5 text-green-400 text-sm"><CheckCircle2 className="w-4 h-4" /> Ligado</span>}
+        {testResult === "error" && <span className="flex items-center gap-1.5 text-red-400 text-sm"><AlertTriangle className="w-4 h-4" /> Erro</span>}
+        <button onClick={testConnection} disabled={testing}
+          className="px-3 py-1.5 rounded-lg border border-border text-sm text-foreground hover:border-accent hover:text-accent transition-colors disabled:opacity-50">
+          {testing ? "A testar…" : "Testar ligação"}
+        </button>
+      </div>
+
+      {/* Instructions */}
+      <div className="p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-xl space-y-2">
+        <p className="text-sm font-medium text-yellow-400 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Ação necessária</p>
+        <p className="text-sm text-muted-foreground">Execute o SQL abaixo uma única vez no Supabase SQL Editor para criar o trigger de registo automático.</p>
+        <a href="https://supabase.com/dashboard/project/rekcdczbitcxaxcncrxi/sql/new" target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline">
+          <ExternalLink className="w-3.5 h-3.5" /> Abrir Supabase SQL Editor
+        </a>
+      </div>
+
+      {/* SQL Block */}
+      <div className="bg-[#0d1117] border border-border rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/20">
+          <span className="text-xs font-mono text-muted-foreground">repair-trigger.sql</span>
+          <button onClick={copySQL}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <Copy className="w-3.5 h-3.5" />
+            {copied ? "Copiado!" : "Copiar SQL"}
+          </button>
+        </div>
+        <pre className="p-4 text-xs font-mono text-green-300 overflow-x-auto whitespace-pre-wrap leading-relaxed">{REPAIR_SQL}</pre>
+      </div>
+
+      <p className="text-xs text-muted-foreground">Após executar o SQL, os novos utilizadores registados serão automaticamente adicionados ao painel CRM.</p>
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+export default function AdminPage() {
+  const [unlocked, setUnlocked] = useState(false)
+  const [activeTab, setActiveTab] = useState<Tab>("overview")
+  const [users, setUsers]         = useState<CRMUser[]>([])
+  const [stats, setStats]         = useState(userStore.getStats())
+  const [dataSource, setDataSource] = useState<"supabase" | "local">("local")
+  const [loading, setLoading]     = useState(false)
+  const [search, setSearch]       = useState("")
+  const [filterStatus, setFilterStatus] = useState<string>("")
+  const [filterMode, setFilterMode]     = useState<string>("")
+  const [selectedUser, setSelectedUser] = useState<CRMUser | null>(null)
+
+  const refreshUsers = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await apiFetch("/api/admin/users")
+      if (res.ok) {
+        const json = await res.json()
+        setUsers(json.data ?? [])
+        setStats(json.stats ?? userStore.getStats())
+        setDataSource(json.source === "supabase" ? "supabase" : "local")
+        return
+      }
+    } catch { /* fallback */ }
+    // Fallback local
+    setUsers(userStore.getAll())
+    setStats(userStore.getStats())
+    setDataSource("local")
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && localStorage.getItem(ADMIN_KEY) === "1") {
+      setUnlocked(true)
+      refreshUsers()
+    }
+  }, [refreshUsers])
+
+  function handleUnlock() {
+    setUnlocked(true)
+    refreshUsers()
+  }
+
+  async function handleUserSave(updated: CRMUser) {
+    await apiFetch(`/api/admin/users/${updated.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(updated),
+    })
+    await refreshUsers()
+    setSelectedUser(updated)
+  }
+
+  async function handleDeleteUser(id: string) {
+    if (!window.confirm("Remover este utilizador permanentemente?")) return
+    await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" })
+    setSelectedUser(null)
+    await refreshUsers()
+  }
+
+  if (!unlocked) return <LoginScreen onUnlock={handleUnlock} />
+
+  // Filtered users
+  const filtered = users.filter(u => {
+    const q = search.toLowerCase()
+    const matchQ = !q || u.email.toLowerCase().includes(q) || u.firstName.toLowerCase().includes(q) || u.lastName.toLowerCase().includes(q)
+    const matchS = !filterStatus || u.status === filterStatus
+    const matchM = !filterMode || u.mode === filterMode
+    return matchQ && matchS && matchM
+  })
+
+  return (
+    <div className="h-full flex flex-col overflow-hidden">
+
+      {/* Top Bar */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <ShieldAlert className="w-5 h-5 text-accent" />
+          <span className="font-bold text-foreground text-lg">Painel Admin</span>
+          <span className="px-2 py-0.5 bg-accent/10 text-accent text-xs rounded-full font-medium">CRM</span>
+          {/* Indicador de fonte de dados */}
+          <span className={cn(
+            "px-2 py-0.5 rounded-full text-xs font-medium border",
+            dataSource === "supabase"
+              ? "border-green-500/40 bg-green-500/10 text-green-400"
+              : "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"
+          )}>
+            {dataSource === "supabase" ? "● Supabase" : "○ Local"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={refreshUsers} className={cn("p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors", loading && "animate-spin")}>
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => { localStorage.removeItem(ADMIN_KEY); setUnlocked(false) }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground border border-border rounded-lg hover:border-red-400 hover:text-red-500 transition-colors">
+            <Lock className="w-3.5 h-3.5" /> Sair
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Nav */}
+      <div className="flex border-b border-border px-6 shrink-0">
+        {([["overview", "Visão Geral", BarChart2], ["users", "Utilizadores", Users], ["setup", "Base de Dados", Database]] as const).map(([id, label, Icon]) => (
+          <button key={id} onClick={() => setActiveTab(id)}
+            className={cn(
+              "flex items-center gap-2 py-3 px-1 mr-6 text-sm font-medium border-b-2 transition-colors",
+              activeTab === id ? "border-accent text-accent" : "border-transparent text-muted-foreground hover:text-foreground"
+            )}>
+            <Icon className="w-4 h-4" /> {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+
+        {/* ── Overview ── */}
+        {activeTab === "overview" && (
+          <div className="p-6 space-y-6 max-w-4xl">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatCard icon={Users} label="Total utilizadores" value={stats.total} />
+              <StatCard icon={UserCheck} label="Contas ativas" value={stats.active} color="text-green-400" />
+              <StatCard icon={UserX} label="Suspensas" value={stats.suspended} color="text-red-400" />
+              <StatCard icon={AlertTriangle} label="Pendentes" value={stats.pending} color="text-yellow-400" />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <StatCard icon={TrendingUp} label="Contas Demo" value={stats.demo} />
+              <StatCard icon={DollarSign} label="Contas Reais" value={stats.real} color="text-green-400" />
+              <StatCard icon={DollarSign} label="Total depositado" value={"$" + fmt(stats.totalDeposited)} color="text-green-400" sub="contas reais" />
+            </div>
+
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+                <span className="text-sm font-semibold text-foreground">Utilizadores recentes</span>
+                <button onClick={() => setActiveTab("users")} className="text-xs text-accent hover:underline flex items-center gap-1">
+                  Ver todos <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="divide-y divide-border">
+                {users.slice(-5).reverse().map(u => (
+                  <div key={u.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/30 cursor-pointer transition-colors"
+                    onClick={() => { setSelectedUser(u); setActiveTab("users") }}>
+                    <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent font-bold text-sm">
+                      {u.firstName[0] ?? u.email[0]}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-foreground truncate">{u.firstName} {u.lastName}</div>
+                      <div className="text-xs text-muted-foreground truncate">{u.email}</div>
+                    </div>
+                    <span className={cn("px-2 py-0.5 rounded-full text-xs font-medium border", STATUS_COLOR[u.status])}>
+                      {STATUS_LABEL[u.status]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 bg-orange-500/10 border border-orange-500/30 rounded-xl">
+              <p className="text-xs font-semibold text-orange-300 mb-1">
+                {dataSource === "supabase" ? "✅ Supabase ativo" : "⚠️ Modo local ativo"}
+              </p>
+              <p className="text-xs text-orange-300/80">
+                {dataSource === "supabase"
+                  ? "Os dados estão a ser lidos e escritos na base de dados Supabase em tempo real."
+                  : "Os dados são guardados localmente neste navegador. Configure SUPABASE_SERVICE_ROLE_KEY em .env.local para ativar a base de dados real."
+                }
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Users ── */}
+        {activeTab === "users" && (
+          <div className="p-6 space-y-4">
+            {/* Filters */}
+            <div className="flex flex-wrap gap-3">
+              <div className="relative flex-1 min-w-48">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Pesquisar nome ou email…"
+                  className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl bg-card text-sm text-foreground outline-none focus:border-accent"
+                />
+              </div>
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                className="px-3 py-2.5 border border-border rounded-xl bg-card text-sm text-foreground outline-none focus:border-accent">
+                <option value="">Todos estados</option>
+                <option value="active">Ativos</option>
+                <option value="suspended">Suspensos</option>
+                <option value="pending">Pendentes</option>
+              </select>
+              <select value={filterMode} onChange={e => setFilterMode(e.target.value)}
+                className="px-3 py-2.5 border border-border rounded-xl bg-card text-sm text-foreground outline-none focus:border-accent">
+                <option value="">Demo + Real</option>
+                <option value="demo">Demo</option>
+                <option value="real">Real</option>
+              </select>
+              <div className="flex items-center gap-1.5 px-3 py-2 bg-muted/40 rounded-xl text-xs text-muted-foreground">
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/20">
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Utilizador</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">País</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Modo</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Estado</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Saldo</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">KYC</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Registado</th>
+                      <th className="px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filtered.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="text-center py-12 text-sm text-muted-foreground">Nenhum utilizador encontrado</td>
+                      </tr>
+                    )}
+                    {filtered.map(u => (
+                      <tr key={u.id} className="hover:bg-muted/20 transition-colors cursor-pointer"
+                        onClick={() => setSelectedUser(u)}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center text-accent font-bold text-xs shrink-0">
+                              {(u.firstName[0] ?? u.email[0]).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-foreground leading-none">{u.firstName} {u.lastName}</div>
+                              <div className="text-xs text-muted-foreground mt-0.5">{u.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">{u.country || "—"}</td>
+                        <td className="px-4 py-3">
+                          <span className={cn("px-2 py-0.5 rounded text-xs font-semibold uppercase",
+                            u.mode === "demo" ? "bg-blue-500/10 text-blue-400" : "bg-green-500/10 text-green-400")}>
+                            {u.mode}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={cn("px-2 py-0.5 rounded-full text-xs font-medium border", STATUS_COLOR[u.status])}>
+                            {STATUS_LABEL[u.status]}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium text-foreground">
+                          {u.balanceOverride !== null
+                            ? <><span className="text-accent">${fmt(u.balanceOverride)}</span><span className="text-xs text-muted-foreground ml-1">(override)</span></>
+                            : "$" + fmt(u.balance)
+                          }
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={cn("text-xs font-medium", KYC_COLOR[u.kycStatus])}>
+                            {KYC_LABEL[u.kycStatus]}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(u.createdAt)}</td>
+                        <td className="px-4 py-3">
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Setup Tab ── */}
+        {activeTab === "setup" && (
+          <SetupTab />
+        )}
+      </div>
+
+      {/* User Edit Drawer */}
+      {selectedUser && (
+        <UserDrawer
+          user={selectedUser!}
+          onClose={() => setSelectedUser(null)}
+          onSave={handleUserSave}
+        />
+      )}
+    </div>
+  )
+}
+
+
