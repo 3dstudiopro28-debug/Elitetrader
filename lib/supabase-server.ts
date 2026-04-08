@@ -20,12 +20,18 @@ const anonKey     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-an
 
 /**
  * Cliente admin (service_role) — ignora RLS.
- * Fallback para anon se a chave não estiver configurada.
+ * Se `accessToken` for fornecido e não houver service_role, usa o JWT
+ * do utilizador para que as queries respeitem RLS correctamente.
  */
-export function createServerClient(): SupabaseClient {
+export function createServerClient(accessToken?: string): SupabaseClient {
   const key = serviceKey || anonKey
+  const extraHeaders: Record<string, string> =
+    !serviceKey && accessToken
+      ? { Authorization: `Bearer ${accessToken}` }
+      : {}
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: extraHeaders },
   })
 }
 

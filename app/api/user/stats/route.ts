@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const sb = createServerClient()
+    const sb = createServerClient(token)
 
     // Identificar o utilizador pelo token
     const { data: { user }, error: authErr } = await sb.auth.getUser(token)

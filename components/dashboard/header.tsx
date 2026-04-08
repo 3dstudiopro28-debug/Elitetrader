@@ -169,14 +169,24 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       // afectem o saldo visível. Sem epoch, $400 admin + $20 histórico = $420 (errado).
       const prevRealBalance = accountStore.getDBBalance("real");
       const newRealBalance = realBalance;
-      if (prevRealBalance === null || prevRealBalance !== newRealBalance) {
-        // Saldo real mudou (ou primeira inicialização) — actualizar epoch
-        const currentRealizedPnl = tradeStore
-          .getClosed()
-          .reduce((s, p) => s + p.pnl, 0);
-        accountStore.setBalanceEpoch(currentRealizedPnl);
+
+      // Protecção: não sobrescrever um saldo conhecido (>0) com zero.
+      // Isto acontece quando o serverless reinicia e perde o adminOverrideStore
+      // em memória, OU quando as env vars ainda não estão configuradas no Vercel.
+      // Só actualizar se o novo saldo for positivo OU se ainda não há saldo guardado.
+      const shouldUpdateBalance =
+        newRealBalance > 0 || prevRealBalance === null;
+
+      if (shouldUpdateBalance) {
+        if (prevRealBalance === null || prevRealBalance !== newRealBalance) {
+          // Saldo real mudou (ou primeira inicialização) — actualizar epoch
+          const currentRealizedPnl = tradeStore
+            .getClosed()
+            .reduce((s, p) => s + p.pnl, 0);
+          accountStore.setBalanceEpoch(currentRealizedPnl);
+        }
+        accountStore.setDBBalance(newRealBalance, "real");
       }
-      accountStore.setDBBalance(realBalance, "real");
 
       // Guardar overrides no store
       accountStore.setDBOverrides({

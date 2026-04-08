@@ -8,7 +8,6 @@ import { MarketsSection } from "@/components/markets-section";
 import { ConditionsSection } from "@/components/conditions-section";
 import { CTASection } from "@/components/cta-section";
 import { Footer } from "@/components/footer";
-import TradingChart from "@/components/TradingChart";
 
 export default function HomePage() {
   return (
