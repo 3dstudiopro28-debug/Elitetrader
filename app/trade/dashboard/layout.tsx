@@ -287,7 +287,7 @@ export default function DashboardLayout({
 
   if (!ready) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[oklch(0.115_0.038_265)]">
+      <div className="min-h-dvh flex items-center justify-center bg-[oklch(0.115_0.038_265)]">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 rounded-full border-2 border-[oklch(0.55_0.22_265)] border-t-transparent animate-spin" />
           <p className="text-sm text-[oklch(0.65_0.018_255)]">A carregar sessão…</p>
@@ -298,7 +298,7 @@ export default function DashboardLayout({
 
   return (
     <div
-      className="h-screen overflow-hidden bg-background flex flex-col"
+      className="min-h-dvh overflow-hidden bg-background flex flex-col"
       style={{ "--header-h": "4.5rem" } as React.CSSProperties}
     >
       <DashboardHeader onMenuOpen={() => setMobileOpen(true)} />
@@ -317,7 +317,7 @@ export default function DashboardLayout({
         />
         {/* Mobile: pl-0 (sidebar é overlay). Desktop: dinâmico conforme sidebar colapsada/expandida */}
         <main
-          className={`dashboard-light bg-background text-foreground flex-1 overflow-hidden pl-0 transition-all duration-300 ${sidebarCollapsed ? "lg:pl-16" : "lg:pl-64"}`}
+          className={`dashboard-light bg-background text-foreground flex-1 overflow-hidden pl-0 transition-all duration-300 ${sidebarCollapsed ? "lg:pl-16" : "md:pl-16 lg:pl-64"}`}
         >
           {children}
         </main>

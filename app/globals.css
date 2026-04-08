@@ -260,14 +260,23 @@ html {
 @media (max-width: 359px) {
   /* Reduce base font slightly on very small screens */
   html { font-size: 14px; }
-  /* Tighten horizontal padding */
-  .px-4 { padding-left: 0.75rem; padding-right: 0.75rem; }
 }
 
 /* ── Landscape phones ─────────────────────────────────────────────────────── */
 @media (max-height: 500px) and (orientation: landscape) {
   /* Reduce hero min-height on landscape phones */
   .min-h-\[90vh\] { min-height: 100dvh; }
+}
+
+/* ── Mobile touch targets (mínimo 44×44px) ───────────────────────────────── */
+@media (max-width: 640px) {
+  button, a, [role="button"] {
+    min-height: 2.75rem; /* 44px */
+  }
+  /* Garantir que inputs não ficam demasiado pequenos */
+  input, select, textarea {
+    font-size: 1rem; /* previne zoom no iOS */
+  }
 }
 
 /* ── Print ────────────────────────────────────────────────────────────────── */

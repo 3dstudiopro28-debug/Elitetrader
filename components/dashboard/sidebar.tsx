@@ -263,12 +263,12 @@ export function DashboardSidebar({
   return (
     <aside
       className={cn(
-        "fixed left-0 top-[4.5rem] h-[calc(100vh-4.5rem)] bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-300 z-50",
+        "fixed left-0 top-[4.5rem] h-[calc(100dvh-4.5rem)] bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-300 z-50 overflow-y-auto",
         // Mobile: escondida por defeito, mostra como overlay quando mobileOpen
         "hidden lg:flex",
-        mobileOpen && "!flex w-72",
-        // Desktop: colapsada (w-16) ou expandida (w-64)
-        !mobileOpen && (collapsed ? "lg:w-16" : "lg:w-64"),
+        mobileOpen && "!flex w-[min(18rem,85vw)]",
+        // Tablet (md): colapsada por defeito
+        !mobileOpen && (collapsed ? "lg:w-16" : "md:w-16 lg:w-64"),
       )}
     >
       {/* ── Collapse button ───────────────────────────────── */}

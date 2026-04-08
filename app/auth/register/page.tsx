@@ -81,7 +81,7 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen bg-background flex">
       {/* Left Side - Branding (same as login) */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-accent/5 to-background">
         <div className="absolute top-8 left-8 z-10">
           <Link href="/" className="flex items-center gap-1">
             <span className="text-accent font-bold text-3xl italic notranslate" translate="no">Elite</span>
@@ -109,7 +109,7 @@ export default function RegisterPage() {
       </div>
 
       {/* Right Side - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-5 sm:p-8">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8 py-8 sm:py-10">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2">

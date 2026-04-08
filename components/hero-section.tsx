@@ -36,7 +36,7 @@ export function HeroSection() {
         </svg>
       </div>
 
-      <div className="relative w-full max-w-7xl mx-auto px-6 sm:px-10 lg:px-16 py-16 lg:py-24 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+      <div className="relative w-full max-w-7xl mx-auto px-4 sm:px-8 lg:px-16 py-10 sm:py-16 lg:py-24 grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 lg:gap-12 items-center">
         {/* Left Content */}
         <motion.div
           initial={{ opacity: 0, x: -20 }}
@@ -89,19 +89,32 @@ export function HeroSection() {
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          whileHover={{ scale: 1.01 }}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="relative hidden lg:block"
+          className="relative w-full"
         >
-          <div className="relative w-full max-w-[44rem] mx-auto">
-            <motion.img
+          {/* Mobile: imagem centrada reduzida */}
+          <div className="lg:hidden flex justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src="/hero-figure.png"
               alt="Elite trader"
-              whileHover={{ scale: 1.03 }}
-              transition={{ duration: 0.4 }}
-              className="relative w-full h-auto object-contain scale-[1.15]"
+              className="w-full max-w-[280px] sm:max-w-[380px] h-auto object-contain opacity-90"
             />
           </div>
+
+          {/* Desktop: imagem grande com hover */}
+          <motion.div
+            whileHover={{ scale: 1.01 }}
+            transition={{ duration: 0.4 }}
+            className="hidden lg:block relative w-full max-w-[44rem] mx-auto"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/hero-figure.png"
+              alt="Elite trader"
+              className="relative w-full h-auto object-contain scale-[1.15]"
+            />
+          </motion.div>
         </motion.div>
       </div>
     </section>
