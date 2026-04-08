@@ -146,13 +146,13 @@ export async function PATCH(
       if (balanceToSet !== null || Object.keys(sharedFields).length > 0) {
         // ── Campos que não são saldo (leverage, currency…) ──────────────────
         if (Object.keys(sharedFields).length > 0) {
-          // Não filtrar por mode="real" — a coluna 'mode' no PostgreSQL colide com
-          // a função agregada MODE() causando erro "WITHIN GROUP is required".
-          // Como cada user tem apenas uma conta (UNIQUE user_id), filtrar só por user_id é suficiente.
+          // Filtrar por mode="real" usando o nome da coluna entre aspas para evitar
+          // colisão com a função agregada MODE() do PostgreSQL.
           const { error: sfErr } = await sb
             .from("accounts")
             .update(sharedFields)
-            .eq("user_id", id);
+            .eq("user_id", id)
+            .eq("mode", "real");
           if (sfErr) {
             console.error("[admin PATCH] sharedFields:", sfErr.message);
             warnings.push("Conta (campos): " + sfErr.message);
@@ -168,13 +168,13 @@ export async function PATCH(
           const delta = balanceToSet - effectivePrevBalance;
 
           // ── Actualizar saldo no Supabase ───────────────────────────────────
-          // Usar upsert em vez de update+fallback para evitar race conditions.
-          // onConflict: "user_id" porque a constraint real é UNIQUE(user_id).
+          // A constraint é UNIQUE(user_id, mode) — obrigatório usar os dois campos
+          // no onConflict para evitar atingir a conta demo por engano.
           const { error: accErr } = await sb
             .from("accounts")
             .upsert(
               { user_id: id, mode: "real", balance: balanceToSet, ...sharedFields },
-              { onConflict: "user_id" },
+              { onConflict: "user_id,mode" },
             );
           if (accErr) {
             console.error("[admin PATCH] balance upsert:", accErr.message);

@@ -49,17 +49,18 @@ export async function GET(req: NextRequest) {
     const realAccount = accs.find(a => a.mode === "real")
     const demoAccount = accs.find(a => a.mode === "demo")
 
-    // Conta real: controlada pelo admin (override > DB > 0)
+    // Conta real: DB é a fonte principal (persiste reiniciôs Vercel).
+    // Override em memória só se o DB ainda não foi actualizado (janela imediata após PATCH)
     const dbRealBalance = realAccount?.balance ?? 0
-    const effectiveRealBalance = mem?.balance ?? dbRealBalance
+    const effectiveRealBalance = dbRealBalance > 0 ? dbRealBalance : (mem?.balance ?? 0)
 
-    // Conta demo: SEMPRE $100.000 fixo — admin não interfere
-    const demoBalance = demoAccount?.balance ?? 100_000
+    // Conta demo: NUNCA afectada pelo admin — sempre do DB com fallback 100k fixo
+    const demoBalance = demoAccount ? Math.max(demoAccount.balance, 0) : 100_000
     const realBalance = effectiveRealBalance
 
-    // Modo efectivo: admin define sempre "real" ou user escolhe localmente
-    // O override do admin é sempre "real"; não forçamos o modo demo nunca via API
-    const effectiveMode: "demo" | "real" = (mem?.mode as "demo" | "real") ?? "real"
+    // Modo efectivo: só forçar "real" se o admin definiu explicitamente; caso contrário
+    // null — o cliente usa o modo guardado em localStorage (escolha do utilizador)
+    const effectiveMode: "demo" | "real" | null = (mem?.mode as "demo" | "real") ?? null
 
     return NextResponse.json({
       success: true,
