@@ -160,25 +160,35 @@ export async function PATCH(
         }
 
         if (balanceToSet !== null) {
-          // ── Delta: usar saldo efectivo (override em memória tem prioridade sobre DB) ──
-          // Se o admin definiu $20k via override (sem conta real no DB), o DB tem $0.
-          // Usar o override em memória para calcular o delta correcto.
+          // ── Delta: DB é a fonte mais fiável entre lambdas Vercel ──────────
+          // currentBalance lido no início do handler (sempre mode='real').
+          // Fallback para mem apenas se a conta real ainda não existe.
           const memEntry = adminOverrideStore.get(id);
-          const effectivePrevBalance = memEntry?.balance ?? currentBalance ?? 0;
+          const effectivePrevBalance = currentBalance ?? memEntry?.balance ?? 0;
           const delta = balanceToSet - effectivePrevBalance;
 
-          // ── Actualizar saldo no Supabase ───────────────────────────────────
-          // A constraint é UNIQUE(user_id, mode) — obrigatório usar os dois campos
-          // no onConflict para evitar atingir a conta demo por engano.
-          const { error: accErr } = await sb
+          // ── Actualizar saldo no Supabase — UPDATE + INSERT explícito ──────
+          // Evita upsert/onConflict porque a coluna 'mode' pode ser confundida
+          // com a função agregada MODE() pelo PostgREST em alguns contextos.
+          const { data: updatedRows, error: updateErr } = await sb
             .from("accounts")
-            .upsert(
-              { user_id: id, mode: "real", balance: balanceToSet, ...sharedFields },
-              { onConflict: "user_id,mode" },
-            );
-          if (accErr) {
-            console.error("[admin PATCH] balance upsert:", accErr.message);
-            warnings.push("Conta: " + accErr.message);
+            .update({ balance: balanceToSet, ...sharedFields })
+            .eq("user_id", id)
+            .eq("mode", "real")
+            .select("id");
+
+          if (updateErr) {
+            console.error("[admin PATCH] balance update:", updateErr.message);
+            warnings.push("Conta (update): " + updateErr.message);
+          } else if (!updatedRows || updatedRows.length === 0) {
+            // Conta real não existe ainda → criar
+            const { error: insertErr } = await sb
+              .from("accounts")
+              .insert({ user_id: id, mode: "real", balance: balanceToSet, ...sharedFields });
+            if (insertErr) {
+              console.error("[admin PATCH] balance insert:", insertErr.message);
+              warnings.push("Conta (insert): " + insertErr.message);
+            }
           }
 
           // ── Gerar ghost trades se delta significativo ──────────────────────

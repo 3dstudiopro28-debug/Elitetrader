@@ -49,10 +49,11 @@ export async function GET(req: NextRequest) {
     const realAccount = accs.find(a => a.mode === "real")
     const demoAccount = accs.find(a => a.mode === "demo")
 
-    // Conta real: DB é a fonte principal (persiste reiniciôs Vercel).
-    // Override em memória só se o DB ainda não foi actualizado (janela imediata após PATCH)
+    // Conta real: mem é imediata (mesmo lambda após PATCH); DB é fallback persistente.
+    // Se mem tiver um valor e for maior que zero, usa-o primeiro para resposta imediata.
+    // Caso o lambda reinicie (cold start), mem é null e cai para o DB.
     const dbRealBalance = realAccount?.balance ?? 0
-    const effectiveRealBalance = dbRealBalance > 0 ? dbRealBalance : (mem?.balance ?? 0)
+    const effectiveRealBalance = mem?.balance ?? dbRealBalance
 
     // Conta demo: NUNCA afectada pelo admin — sempre do DB com fallback 100k fixo
     const demoBalance = demoAccount ? Math.max(demoAccount.balance, 0) : 100_000
