@@ -140,6 +140,27 @@ export const accountStore = {
   },
 
   /**
+   * Actualiza saldo (modo real) + overrides atomicamente com UM único evento.
+   * Evita dois disparos rápidos de ACC_EVENT que causam oscilação visual.
+   */
+  applyServerData(
+    realBalance: number,
+    epochPnl: number,
+    overrides: {
+      balanceOverride: number | null;
+      equityOverride: number | null;
+      marginLevelOverride: number | null;
+      forceClosePositions: boolean;
+    },
+  ) {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(DB_BAL_REAL_KEY, String(realBalance));
+    localStorage.setItem(BAL_EPOCH_REAL_KEY, String(epochPnl));
+    localStorage.setItem(DB_OVER_KEY, JSON.stringify(overrides));
+    window.dispatchEvent(new CustomEvent(ACC_EVENT));
+  },
+
+  /**
    * Compute live account metrics — real formulas.
    * usedMargin = sum(amount / leverage) per position  [actual margin deposited]
    * equity     = balance + unrealizedPnl

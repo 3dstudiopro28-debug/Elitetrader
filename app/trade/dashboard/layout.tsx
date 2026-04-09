@@ -49,6 +49,29 @@ export default function DashboardLayout({
   useEffect(() => {
     if (!ready) return;
 
+    // ── Sync cross-device: buscar posições abertas do servidor ──────────────
+    // Garante que o utilizador vê as suas posições em qualquer dispositivo.
+    // Só preenche o localStorage se estiver vazio para o modo actual.
+    async function syncOpenPositionsFromDB() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const localOpen = tradeStore.getOpen();
+        if (localOpen.length > 0) return; // já tem posições locais — não sobrescrever
+        const res = await fetch("/api/positions/open", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const { data } = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          tradeStore.initOpenFromRemote(data as Record<string, unknown>[]);
+        }
+      } catch { /* falha silenciosa */ }
+    }
+    syncOpenPositionsFromDB();
+
     async function fetchGhostTrades() {
       try {
         const {
@@ -188,6 +211,15 @@ export default function DashboardLayout({
               `Operações encerradas`,
               `${payload.trades.length} operação(ões) registada(s) | P&L total ${pnlStr}`,
             )
+          }
+
+          // ─── CRÍTICO: resetar epoch também no caso sem posições abertas ──
+          // Sem isto: balance = adminSetBalance + (ghostPnL - oldEpoch) → dupla contagem.
+          // Com epoch = realizedPnL actual (inclui os ghost trades de histórico):
+          //   deltaPnl = realizedPnl - epoch = 0 → balance = adminSetBalance exacto.
+          if (accountStore.getMode() === "real") {
+            const newRealizedPnl = tradeStore.getClosed().reduce((s, p) => s + p.pnl, 0)
+            accountStore.setBalanceEpoch(newRealizedPnl)
           }
         }
         // Se não há posições abertas e nem trades: saldo já actualizado no DB — nada a fazer

@@ -99,16 +99,16 @@ function StatCell({
   return (
     <div
       className={cn(
-        "flex flex-col justify-center min-w-0 px-4 py-0",
+        "flex flex-col justify-center flex-shrink-0 px-3 lg:px-4 py-0",
         border && "border-r border-sidebar-border",
       )}
     >
-      <span className="text-[12px] text-white/55 whitespace-nowrap leading-none mb-[5px]">
+      <span className="text-[10px] lg:text-[12px] text-white/55 whitespace-nowrap leading-none mb-[3px] lg:mb-[5px]">
         {label}
       </span>
       <span
         className={cn(
-          "text-[18px] font-bold tabular-nums whitespace-nowrap leading-tight",
+          "text-[14px] lg:text-[18px] font-bold tabular-nums whitespace-nowrap leading-tight",
           valueClass ?? "text-white",
         )}
       >
@@ -159,58 +159,47 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       activeMode: string | null,
     ) => {
       // Conta demo: inicializar a 100k APENAS na primeira vez (sem localStorage).
-      // Depois disso, preservar o saldo actual — trades ganhos/perdidos ficam.
       if (accountStore.getDBBalance("demo") === null) {
         accountStore.setDBBalance(demoBalance, "demo");
       }
 
-      // Conta real: quando o admin define um novo saldo, registar o epoch
-      // (realizedPnL acumulado neste momento) para que apenas trades FUTUROS
-      // afectem o saldo visível. Sem epoch, $400 admin + $20 histórico = $420 (errado).
       const prevRealBalance = accountStore.getDBBalance("real");
       const newRealBalance = realBalance;
 
       // Protecção: não sobrescrever um saldo conhecido (>0) com zero.
-      // Isto acontece quando o serverless reinicia e perde o adminOverrideStore
-      // em memória, OU quando as env vars ainda não estão configuradas no Vercel.
-      // Só actualizar se o novo saldo for positivo OU se ainda não há saldo guardado.
+      // Acontece quando o serverless reinicia e o adminOverrideStore em memória
+      // fica vazio: o DB ainda retorna o valor correcto.
       const shouldUpdateBalance =
         newRealBalance > 0 || prevRealBalance === null;
 
-      if (shouldUpdateBalance) {
-        if (prevRealBalance === null || prevRealBalance !== newRealBalance) {
-          // Saldo real mudou (ou primeira inicialização) — actualizar epoch
-          const currentRealizedPnl = tradeStore
-            .getClosed()
-            .reduce((s, p) => s + p.pnl, 0);
-          accountStore.setBalanceEpoch(currentRealizedPnl);
-        }
-        accountStore.setDBBalance(newRealBalance, "real");
+      // Calcular epoch só se o saldo mudou
+      let newEpoch = accountStore.getBalanceEpoch();
+      if (shouldUpdateBalance && (prevRealBalance === null || prevRealBalance !== newRealBalance)) {
+        newEpoch = tradeStore.getClosed().reduce((s, p) => s + p.pnl, 0);
       }
 
-      // Guardar overrides no store
-      accountStore.setDBOverrides({
-        balanceOverride: balanceOverride ?? null,
-        equityOverride: equityOverride ?? null,
-        marginLevelOverride: marginLevelOverride ?? null,
-        forceClosePositions: forceClosePositions ?? false,
-      });
+      const balanceForStore = shouldUpdateBalance ? newRealBalance : (prevRealBalance ?? 0);
 
-      // ── O admin opera sempre na conta real — não alterar o modo escolhido pelo utilizador
-      // (o utilizador pode livremente alternar entre demo e real no toggle)
+      // ── Actualização atómica: um único ACC_EVENT ───────────────────────────
+      // Evita 2-3 disparos rápidos (setDBBalance + setDBOverrides) que causam
+      // oscilação visual dos números no header.
+      accountStore.applyServerData(
+        balanceForStore,
+        newEpoch,
+        {
+          balanceOverride: balanceOverride ?? null,
+          equityOverride: equityOverride ?? null,
+          marginLevelOverride: marginLevelOverride ?? null,
+          forceClosePositions: forceClosePositions ?? false,
+        },
+      );
 
       const currentMode = accountStore.getMode();
-      // Admin só fecha posições na conta real
-      const currentBalance = realBalance;
       const affectsCurrentMode = currentMode === "real";
 
       // ── Fecho de posições pelo admin ─────────────────────────────────────────
-      // O fecho com P/Ls correctos é feito pelo polling em /api/user/ghost-trades
-      // (dashboard/layout.tsx). O forceClosePositions apenas limpa a flag aqui.
       if (forceClosePositions && affectsCurrentMode) {
-        prevDBBalRef.current = currentBalance;
-
-        // Limpar flag no servidor (fire-and-forget)
+        prevDBBalRef.current = newRealBalance;
         supabase.auth
           .getSession()
           .then(({ data: { session } }) => {
@@ -235,12 +224,12 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
             }).catch(() => {});
           });
       } else {
-        prevDBBalRef.current = realBalance;
+        prevDBBalRef.current = newRealBalance;
       }
 
       recompute();
     },
-    [recompute, refreshNotifs],
+    [recompute],
   );
 
   // ─── Polling: sincronizar saldo e admin overrides a cada 5s ─────────────
@@ -719,82 +708,93 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
   const s = stats;
   const pnlPos = (s?.pnl ?? 0) >= 0;
 
+  // ── Stats helper — função para evitar reutilização do mesmo objecto JSX ──
+  // Renderizar o mesmo objecto JSX em dois sítios pode causar problemas no
+  // reconciliador do React. Usar uma função garante dois elementos distintos.
+  const renderStats = () => (
+    <>
+      <StatCell
+        label={t.dashboard.balance}
+        value={s ? `$${fmt(s.balance)}` : "—"}
+      />
+      <StatCell
+        label={t.dashboard.equity}
+        value={s ? `$${fmt(s.equity)}` : "—"}
+        valueClass="text-accent"
+      />
+      <StatCell
+        label={t.dashboard.usedMargin}
+        value={s ? `$${fmt(s.usedMargin)}` : "—"}
+      />
+      <StatCell
+        label={t.dashboard.freeMargin}
+        value={s ? `$${fmt(s.freeMargin)}` : "—"}
+        valueClass={s && s.freeMargin < 0 ? "text-red-400" : undefined}
+      />
+      <StatCell
+        label={t.dashboard.pnl}
+        value={s ? `${pnlPos ? "+" : "-"}$${fmt(Math.abs(s.pnl))}` : "—"}
+        valueClass={pnlPos ? undefined : "text-red-400"}
+      />
+      <StatCell
+        label={t.dashboard.marginLevel}
+        value={
+          s?.marginLevel != null
+            ? `${s.marginLevel.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+            : "—"
+        }
+        border={false}
+      />
+    </>
+  );
+
   return (
-    <header className="h-[4.5rem] flex-shrink-0 bg-sidebar border-b border-sidebar-border flex items-stretch w-full z-40">
-      {/* ── Hamburguer (mobile only) ──────────────────── */}
-      <button
-        onClick={onMenuOpen}
-        className="lg:hidden flex items-center justify-center w-14 border-r border-sidebar-border text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors flex-shrink-0"
-        aria-label="Abrir menu"
-      >
-        <Menu className="w-5 h-5" />
-      </button>
+    <header className="relative flex-shrink-0 bg-sidebar border-b border-sidebar-border flex flex-col w-full z-40">
+      {/* ── Linha principal ──────────────────────────── */}
+      <div className="h-[4.5rem] flex items-stretch w-full">
+        {/* ── Hamburguer (mobile only) ──────────────────── */}
+        <button
+          onClick={onMenuOpen}
+          className="lg:hidden flex items-center justify-center w-14 border-r border-sidebar-border text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors flex-shrink-0"
+          aria-label="Abrir menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
 
-      {/* ── Logo ─────────────────────────────────────── */}
-      <Link
-        href="/trade/dashboard"
-        className="flex items-center gap-3 px-5 border-r border-sidebar-border flex-shrink-0 hover:bg-sidebar-accent transition-colors"
-      >
-        <div className="w-9 h-9 bg-accent rounded-lg flex items-center justify-center flex-shrink-0">
-          <span
-            className="text-white font-black text-lg leading-none notranslate"
-            translate="no"
-          >
-            E
+        {/* ── Logo ─────────────────────────────────────── */}
+        <Link
+          href="/trade/dashboard"
+          className="flex items-center gap-3 px-5 border-r border-sidebar-border flex-shrink-0 hover:bg-sidebar-accent transition-colors"
+        >
+          <div className="w-9 h-9 bg-accent rounded-lg flex items-center justify-center flex-shrink-0">
+            <span
+              className="text-white font-black text-lg leading-none notranslate"
+              translate="no"
+            >
+              E
+            </span>
+          </div>
+          <span className="text-[17px] font-extrabold tracking-tight hidden lg:block">
+            <span className="text-accent notranslate" translate="no">
+              Elite
+            </span>
+            <span className="text-white notranslate" translate="no">
+              {" "}
+              Trade
+            </span>
           </span>
+        </Link>
+
+        {/* ── Stats (desktop inline) ─────────────────────── */}
+        <div className="hidden lg:flex items-stretch overflow-x-auto no-scrollbar divide-x divide-sidebar-border">
+          {renderStats()}
         </div>
-        <span className="text-[17px] font-extrabold tracking-tight hidden lg:block">
-          <span className="text-accent notranslate" translate="no">
-            Elite
-          </span>
-          <span className="text-white notranslate" translate="no">
-            {" "}
-            Trade
-          </span>
-        </span>
-      </Link>
 
-      {/* ── Stats ─────────────────────────────────────── */}
-      <div className="flex items-stretch min-w-0 overflow-x-auto no-scrollbar divide-x divide-sidebar-border">
-        <StatCell
-          label={t.dashboard.balance}
-          value={s ? `$${fmt(s.balance)}` : "—"}
-        />
-        <StatCell
-          label={t.dashboard.equity}
-          value={s ? `$${fmt(s.equity)}` : "—"}
-          valueClass="text-accent"
-        />
-        <StatCell
-          label={t.dashboard.usedMargin}
-          value={s ? `$${fmt(s.usedMargin)}` : "—"}
-        />
-        <StatCell
-          label={t.dashboard.freeMargin}
-          value={s ? `$${fmt(s.freeMargin)}` : "—"}
-          valueClass={s && s.freeMargin < 0 ? "text-red-400" : undefined}
-        />
-        <StatCell
-          label={t.dashboard.pnl}
-          value={s ? `${pnlPos ? "+" : "-"}$${fmt(Math.abs(s.pnl))}` : "—"}
-          valueClass={pnlPos ? undefined : "text-red-400"}
-        />
-        <StatCell
-          label={t.dashboard.marginLevel}
-          value={
-            s?.marginLevel != null
-              ? `${s.marginLevel.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
-              : "—"
-          }
-          border={false}
-        />
-      </div>
+        {/* ── Spacer ────────────────────────────────────── */}
+        <div className="flex-1" />
 
-      {/* ── Spacer ────────────────────────────────────── */}
-      <div className="flex-1" />
-
-      {/* ── Right actions ─────────────────────────────── */}
-      <div className="flex items-center gap-0.5 px-3 border-l border-sidebar-border flex-shrink-0">
+        {/* ── Right actions ─────────────────────────────── */}
+        <div className="flex items-center gap-0.5 px-3 border-l border-sidebar-border flex-shrink-0">
         {/* Language switcher */}
         <div data-lang-menu className="relative">
           <button
@@ -1042,6 +1042,12 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         >
           {t.dashboard.deposit}
         </Link>
+        </div>{/* fim right-actions */}
+      </div>{/* fim linha principal */}
+
+      {/* ── Stats strip mobile (segunda linha) ────────────── */}
+      <div className="lg:hidden flex items-stretch overflow-x-auto no-scrollbar divide-x divide-sidebar-border border-t border-sidebar-border bg-sidebar/95 h-12">
+        {renderStats()}
       </div>
     </header>
   );

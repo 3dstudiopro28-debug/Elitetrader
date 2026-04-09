@@ -298,8 +298,50 @@ export const tradeStore = {
   },
 
   /**
-   * Fecha uma posição com PnL directo (sem recalcular a partir do preço).
-   * Usado quando o servidor fecha a posição remotamente (ex: ajuste do admin).
+   * Inicializa posições abertas a partir de dados do servidor (cross-device sync).
+   * Só é chamado no arranque quando o localStorage está vazio para o modo actual.
+   * Converte o formato da BD (snake_case) para o formato OpenPosition (camelCase).
+   */
+  initOpenFromRemote(rows: Record<string, unknown>[]) {
+    if (typeof window === "undefined") return;
+    const iconMap: Record<string, string> = {
+      EURUSD: "🇪🇺", EURGBP: "€£", GBPUSD: "🇬🇧", USDJPY: "💴",
+      USDCHF: "🇨🇭", AUDUSD: "🇦🇺", USDCAD: "🇨🇦", NZDUSD: "🇳🇿",
+      EURJPY: "🇪🇺", XAUUSD: "🥇", XAGUSD: "🥈", BTCUSD: "₿",
+      ETHUSD: "Ξ", SOLUSD: "◎", AAPL: "🍎", TSLA: "⚡", NVDA: "🟢",
+      AMZN: "📦", MSFT: "🪟", META: "🔵", GOOGL: "🔍", NFLX: "🎬",
+    };
+    const positions: OpenPosition[] = rows
+      .filter(row => row.status === "open")
+      .map(row => {
+        const symbol = String(row.symbol || "");
+        const openPrice = parseFloat(String(row.open_price ?? 1));
+        const decimals = Math.max((openPrice.toString().split(".")[1] ?? "").length, 2);
+        return {
+          id: String(row.id),
+          assetId: symbol.toLowerCase(),
+          symbol,
+          name: String(row.asset_name || symbol),
+          icon: iconMap[symbol] ?? "📊",
+          digits: decimals,
+          tvSymbol: "",
+          type: (row.type === "sell" ? "sell" : "buy") as "buy" | "sell",
+          lots: parseFloat(String(row.lots ?? 0)),
+          amount: parseFloat(String(row.amount ?? 0)),
+          leverage: parseInt(String(row.leverage ?? 1)),
+          openPrice,
+          spread: parseFloat(String(row.spread ?? 0)),
+          stopLoss: row.stop_loss != null ? parseFloat(String(row.stop_loss)) : null,
+          takeProfit: row.take_profit != null ? parseFloat(String(row.take_profit)) : null,
+          openedAt: String(row.opened_at ?? new Date().toISOString()),
+        };
+      });
+    if (positions.length > 0) {
+      write(keys().open, positions);
+    }
+  },
+
+  /**
    * Se a posição não existir em localStorage, ignora silenciosamente.
    */
   closePositionDirect(

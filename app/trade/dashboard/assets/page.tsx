@@ -121,6 +121,27 @@ interface Asset {
   rank?: number;
   finnhubSymbol?: string;
   tvSymbol: string;
+  /** Unidades por lote padrão.
+   *  Forex: 100.000 | Ouro: 100 | Prata: 1.000 | Petróleo: 1.000 | Cripto/Ações: 1 */
+  contractSize?: number;
+}
+
+/**
+ * Retorna o tamanho do contrato (unidades por lote) para um ativo.
+ * Usado para converter "lotes" em margem/notional no formulário de trade.
+ *   Forex:  1 lote = 100.000 unidades da moeda base
+ *   Ouro:   1 lote = 100 oz troy
+ *   Prata:  1 lote = 1.000 oz troy
+ *   Crude:  1 lote = 1.000 barris
+ *   Outros (cripto, ações, índices): 1 lote = 1 unidade
+ */
+function getContractSize(asset: Asset): number {
+  if (asset.contractSize) return asset.contractSize;
+  if (asset.category.includes("forex")) return 100_000;
+  if (asset.symbol === "XAUUSD") return 100;
+  if (asset.symbol === "XAGUSD") return 1_000;
+  if (asset.category.includes("commodities")) return 1_000;
+  return 1; // cripto, ações, ETFs, índices
 }
 
 // ─── Assets ───────────────────────────────────────────────────────────────────
@@ -814,8 +835,10 @@ function ChartModal({
   const displayPrice = tradeType === "buy" ? ask : bid;
   const amountNum = parseFloat(amount) || 100;
   const lotsNum = parseFloat(lots) || 0.01;
-  const calcLots = tab === "amount" ? amountNum / displayPrice : lotsNum;
-  const calcAmount = tab === "lots" ? lotsNum * displayPrice : amountNum;
+  const contractSize = getContractSize(asset);
+  // Para o separador "lotes": margem = lots × contractSize × preço / alavancagem
+  const calcLots = tab === "amount" ? amountNum * selectedLeverage / (contractSize * displayPrice) : lotsNum;
+  const calcAmount = tab === "lots" ? lotsNum * contractSize * displayPrice / selectedLeverage : amountNum;
   const leveraged = calcAmount * selectedLeverage;
   const sim1Pct = leveraged * 0.01;
   const simTP = (() => {
@@ -874,13 +897,14 @@ function ChartModal({
     const bid = tickPrice;
     const ask = tickPrice + asset.spread;
     const execPrice = tradeType === "buy" ? ask : bid;
+    const cs = getContractSize(asset);
     const lotsN =
       tab === "amount"
-        ? (parseFloat(amount) || 100) / execPrice
+        ? (parseFloat(amount) || 100) * selectedLeverage / (cs * execPrice)
         : parseFloat(lots) || 0.01;
     const amountN =
       tab === "lots"
-        ? (parseFloat(lots) || 0.01) * execPrice
+        ? (parseFloat(lots) || 0.01) * cs * execPrice / selectedLeverage
         : parseFloat(amount) || 100;
     // ── Verificação de saldo ──────────────────────────────────────────────────
     const bal = getCurrentBalance();
@@ -1613,8 +1637,10 @@ function TradePanel({
 
   const amountNum = parseFloat(amount) || 100;
   const lotsNum = parseFloat(lots) || 0.01;
-  const calcLots = tab === "amount" ? amountNum / displayPrice : lotsNum;
-  const calcAmount = tab === "lots" ? lotsNum * displayPrice : amountNum;
+  const contractSize = getContractSize(asset);
+  // Para o separador "lotes": margem = lots × contractSize × preço / alavancagem
+  const calcLots = tab === "amount" ? amountNum * selectedLeverage / (contractSize * displayPrice) : lotsNum;
+  const calcAmount = tab === "lots" ? lotsNum * contractSize * displayPrice / selectedLeverage : amountNum;
   const leveraged = calcAmount * selectedLeverage;
   const sim1Pct = leveraged * 0.01;
   const simTP = (() => {
@@ -1665,13 +1691,14 @@ function TradePanel({
     const bid = tickPrice;
     const ask = tickPrice + asset.spread;
     const execPrice = tradeType === "buy" ? ask : bid;
+    const cs = getContractSize(asset);
     const lotsN =
       tab === "amount"
-        ? (parseFloat(amount) || 100) / execPrice
+        ? (parseFloat(amount) || 100) * selectedLeverage / (cs * execPrice)
         : parseFloat(lots) || 0.01;
     const amountN =
       tab === "lots"
-        ? (parseFloat(lots) || 0.01) * execPrice
+        ? (parseFloat(lots) || 0.01) * cs * execPrice / selectedLeverage
         : parseFloat(amount) || 100;
     // ── Verificação de saldo ──────────────────────────────────────────────────
     const bal = getCurrentBalance();

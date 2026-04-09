@@ -263,7 +263,10 @@ export function DashboardSidebar({
   return (
     <aside
       className={cn(
-        "fixed left-0 top-[4.5rem] h-[calc(100dvh-4.5rem)] bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-300 z-50 overflow-y-auto",
+        "fixed left-0 bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-300 z-50 overflow-y-auto",
+        // Mobile: header tem 7.5rem (4.5rem + 3rem strip de stats)
+        // Desktop (lg): header tem 4.5rem (strip de stats está escondida)
+        "top-[7.5rem] h-[calc(100dvh-7.5rem)] lg:top-[4.5rem] lg:h-[calc(100dvh-4.5rem)]",
         // Mobile: escondida por defeito, mostra como overlay quando mobileOpen
         "hidden lg:flex",
         mobileOpen && "!flex w-[min(18rem,85vw)]",
