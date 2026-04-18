@@ -2151,7 +2151,9 @@ export default function AdminPage() {
   useEffect(() => {
     if (!unlocked) return;
 
-    const channel = supabase.channel("crm-presence");
+    const channel = supabase.channel("crm-presence", {
+      config: { presence: { key: `admin-${role}-${Date.now()}` } },
+    });
 
     const updatePresence = () => {
       const state = channel.presenceState();
@@ -2164,7 +2166,12 @@ export default function AdminPage() {
       .on("presence", { event: "sync" }, updatePresence)
       .on("presence", { event: "join" }, updatePresence)
       .on("presence", { event: "leave" }, updatePresence)
-      .subscribe();
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ role, ts: Date.now() });
+          updatePresence();
+        }
+      });
 
     presenceChannelRef.current = channel;
 
@@ -2175,7 +2182,7 @@ export default function AdminPage() {
       }
       setOnlineUserIds(new Set());
     };
-  }, [unlocked]);
+  }, [unlocked, role]);
 
   function handleUnlock(r: Role) {
     setRole(r);

@@ -41,6 +41,7 @@ export default function DashboardLayout({
   const realtimePresenceRef = useRef<ReturnType<
     typeof supabase.channel
   > | null>(null);
+  const realtimeTrackRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -370,13 +371,23 @@ export default function DashboardLayout({
         config: { presence: { key: user.id } },
       });
 
+      const trackNow = async () => {
+        await channel.track({
+          userId: user.id,
+          email: user.email ?? "",
+          ts: Date.now(),
+        });
+      };
+
       channel.subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
-          await channel.track({
-            userId: user.id,
-            email: user.email ?? "",
-            ts: Date.now(),
-          });
+          await trackNow();
+          if (realtimeTrackRef.current) clearInterval(realtimeTrackRef.current);
+          realtimeTrackRef.current = setInterval(() => {
+            trackNow().catch(() => {
+              // silencioso
+            });
+          }, 20_000);
         }
       });
 
@@ -385,6 +396,10 @@ export default function DashboardLayout({
 
     return () => {
       cancelled = true;
+      if (realtimeTrackRef.current) {
+        clearInterval(realtimeTrackRef.current);
+        realtimeTrackRef.current = null;
+      }
       if (realtimePresenceRef.current) {
         supabase.removeChannel(realtimePresenceRef.current);
         realtimePresenceRef.current = null;

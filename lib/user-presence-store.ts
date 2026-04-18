@@ -16,7 +16,8 @@ if (!global.__etUserPresenceStore) {
   global.__etUserPresenceStore = _store;
 }
 
-const ONLINE_TTL_MS = 70_000;
+// Janela mais ampla para evitar falso "offline" quando o browser reduz timers em background.
+const ONLINE_TTL_MS = 15 * 60 * 1000;
 
 export const userPresenceStore = {
   ping(userId: string, email?: string) {
