@@ -31,7 +31,7 @@ export default function LoginPage() {
       return;
     }
 
-    setResetInfo(`redefinicao de senha enviada pelo seu email ${email.trim()}`);
+    setResetInfo(`redefinição de senha enviada pelo seu email ${email.trim()}`);
   }
 
   async function handleGoogleLogin() {
