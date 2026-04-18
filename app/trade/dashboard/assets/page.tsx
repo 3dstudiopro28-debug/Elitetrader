@@ -168,6 +168,12 @@ function getContractSize(asset: Asset): number {
   return 1; // cripto, ações, ETFs, índices
 }
 
+// Garante spread mínimo visível pelas casas decimais do ativo
+function getEffectiveSpread(asset: Asset): number {
+  const minVisibleSpread = 1 / Math.pow(10, asset.digits);
+  return Math.max(asset.spread, minVisibleSpread);
+}
+
 // ─── Assets ───────────────────────────────────────────────────────────────────
 const ASSETS: Asset[] = [
   {
@@ -795,7 +801,9 @@ function useTickPrice(
     const schedule = () => {
       id = setTimeout(
         () => {
-          if (liveRef.current) {
+          if (isWeekend()) {
+            setTickPrice(baseRef.current);
+          } else if (liveRef.current) {
             const maxDelta = spread * 0.9;
             setTickPrice(
               baseRef.current + (Math.random() - 0.5) * 2 * maxDelta,
@@ -816,6 +824,7 @@ function useTickPrice(
   // para reduzir divergência visual entre gráfico e bid/ask.
   useEffect(() => {
     if (finnhubSymbol !== "OANDA:XAU_USD") return;
+    if (isWeekend()) return;
 
     let dead = false;
     async function syncGoldQuote() {
@@ -908,16 +917,17 @@ function ChartModal({
   const [takeProfitVal, setTakeProfitVal] = useState("");
   const [pendingOrder, setPendingOrder] = useState(false);
   const [pendingPrice, setPendingPrice] = useState("");
+  const effectiveSpread = getEffectiveSpread(asset);
 
   // Preço com micro-fluctuação para display (apenas quando mercado aberto)
   const tickPrice = useTickPrice(
     price,
-    asset.spread,
+    effectiveSpread,
     isLive,
     asset.finnhubSymbol,
   );
   const bid = tickPrice;
-  const ask = tickPrice + asset.spread;
+  const ask = tickPrice + effectiveSpread;
   const displayPrice = tradeType === "buy" ? ask : bid;
   const amountNum = parseFloat(amount) || 100;
   const lotsNum = parseFloat(lots) || 0.01;
@@ -949,7 +959,7 @@ function ChartModal({
     const amt = (leveraged * dir * (sl - displayPrice)) / displayPrice;
     return { amount: amt, pct: calcAmount > 0 ? (amt / calcAmount) * 100 : 0 };
   })();
-  const spreadCost = leveraged * (asset.spread / displayPrice);
+  const spreadCost = leveraged * (effectiveSpread / displayPrice);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -987,7 +997,7 @@ function ChartModal({
     }
     // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
     const bid = tickPrice;
-    const ask = tickPrice + asset.spread;
+    const ask = tickPrice + effectiveSpread;
     const execPrice = tradeType === "buy" ? ask : bid;
     const cs = getContractSize(asset);
     const lotsN =
@@ -1026,7 +1036,7 @@ function ChartModal({
         amount: amountN,
         leverage: selectedLeverage,
         targetPrice: parseFloat(pendingPrice),
-        spread: asset.spread,
+        spread: effectiveSpread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -1049,7 +1059,7 @@ function ChartModal({
         amount: amountN,
         leverage: selectedLeverage,
         openPrice: execPrice,
-        spread: asset.spread,
+        spread: effectiveSpread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -1242,7 +1252,7 @@ function ChartModal({
                   {simTP || simSL ? "Simulação de alvo" : "Simulação 1%"}
                 </p>
                 <span className="text-[10px] text-muted-foreground">
-                  Spread: {asset.spread.toFixed(asset.digits)}
+                  Spread: {effectiveSpread.toFixed(asset.digits)}
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -1315,7 +1325,7 @@ function ChartModal({
                             stopLossVal || bid.toFixed(asset.digits),
                           );
                           setStopLossVal(
-                            (v - asset.spread * 10).toFixed(asset.digits),
+                            (v - effectiveSpread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1335,7 +1345,7 @@ function ChartModal({
                             stopLossVal || bid.toFixed(asset.digits),
                           );
                           setStopLossVal(
-                            (v + asset.spread * 10).toFixed(asset.digits),
+                            (v + effectiveSpread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1378,7 +1388,7 @@ function ChartModal({
                             takeProfitVal || ask.toFixed(asset.digits),
                           );
                           setTakeProfitVal(
-                            (v - asset.spread * 10).toFixed(asset.digits),
+                            (v - effectiveSpread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1398,7 +1408,7 @@ function ChartModal({
                             takeProfitVal || ask.toFixed(asset.digits),
                           );
                           setTakeProfitVal(
-                            (v + asset.spread * 10).toFixed(asset.digits),
+                            (v + effectiveSpread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1589,6 +1599,7 @@ function useFinnhubPrices(assets: Asset[]) {
   // REST — fetch inicial + retry a cada 30s para activos ainda não confirmados
   useEffect(() => {
     const fetchAll = async (onlyUnlive = false) => {
+      if (isWeekend()) return;
       for (const asset of assets) {
         // Ouro: fallback dedicado sem API key para evitar ficar preso em valor antigo
         if (asset.id === "xauusd") {
@@ -1655,6 +1666,7 @@ function useFinnhubPrices(assets: Asset[]) {
 
     ws.onmessage = (event) => {
       try {
+        if (isWeekend()) return;
         const msg = JSON.parse(event.data);
         if (msg.type === "trade" && msg.data) {
           const patch: Record<string, number> = {};
@@ -1686,6 +1698,7 @@ function useFinnhubPrices(assets: Asset[]) {
   // Estes são sempre considerados "live" para efeitos de negociação (preço simulado).
   useEffect(() => {
     const id = setInterval(() => {
+      if (isWeekend()) return;
       const patch: Record<string, number> = {};
       assets.forEach((a) => {
         if (!a.finnhubSymbol) {
@@ -1737,16 +1750,17 @@ function TradePanel({
   const [pendingOrder, setPendingOrder] = useState(false);
   const [pendingPrice, setPendingPrice] = useState("");
   const [isFav, setIsFav] = useState(false);
+  const effectiveSpread = getEffectiveSpread(asset);
 
   // Preço com micro-fluctuação para display (apenas quando mercado aberto)
   const tickPrice = useTickPrice(
     price,
-    asset.spread,
+    effectiveSpread,
     isLive,
     asset.finnhubSymbol,
   );
   const bid = tickPrice;
-  const ask = tickPrice + asset.spread;
+  const ask = tickPrice + effectiveSpread;
   const displayPrice = tradeType === "buy" ? ask : bid;
 
   const amountNum = parseFloat(amount) || 100;
@@ -1779,7 +1793,7 @@ function TradePanel({
     const amt = (leveraged * dir * (sl - displayPrice)) / displayPrice;
     return { amount: amt, pct: calcAmount > 0 ? (amt / calcAmount) * 100 : 0 };
   })();
-  const spreadCost = leveraged * (asset.spread / displayPrice);
+  const spreadCost = leveraged * (effectiveSpread / displayPrice);
 
   const [toast, setToast] = useState<string | null>(null);
   const router = useRouter();
@@ -1809,7 +1823,7 @@ function TradePanel({
     }
     // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
     const bid = tickPrice;
-    const ask = tickPrice + asset.spread;
+    const ask = tickPrice + effectiveSpread;
     const execPrice = tradeType === "buy" ? ask : bid;
     const cs = getContractSize(asset);
     const lotsN =
@@ -1848,7 +1862,7 @@ function TradePanel({
         amount: amountN,
         leverage: selectedLeverage,
         targetPrice: parseFloat(pendingPrice),
-        spread: asset.spread,
+        spread: effectiveSpread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -1871,7 +1885,7 @@ function TradePanel({
         amount: amountN,
         leverage: selectedLeverage,
         openPrice: execPrice,
-        spread: asset.spread,
+        spread: effectiveSpread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -2104,7 +2118,7 @@ function TradePanel({
               {simTP || simSL ? "Simulação de alvo" : "Simulação 1%"}
             </p>
             <span className="text-[10px] text-muted-foreground">
-              Spread: {asset.spread.toFixed(asset.digits)}
+              Spread: {effectiveSpread.toFixed(asset.digits)}
             </span>
           </div>
           <div className="flex justify-between items-center">
@@ -2175,7 +2189,7 @@ function TradePanel({
                         stopLossVal || bid.toFixed(asset.digits),
                       );
                       setStopLossVal(
-                        (v - asset.spread * 10).toFixed(asset.digits),
+                        (v - effectiveSpread * 10).toFixed(asset.digits),
                       );
                     }}
                     className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -2195,7 +2209,7 @@ function TradePanel({
                         stopLossVal || bid.toFixed(asset.digits),
                       );
                       setStopLossVal(
-                        (v + asset.spread * 10).toFixed(asset.digits),
+                        (v + effectiveSpread * 10).toFixed(asset.digits),
                       );
                     }}
                     className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -2238,7 +2252,7 @@ function TradePanel({
                         takeProfitVal || ask.toFixed(asset.digits),
                       );
                       setTakeProfitVal(
-                        (v - asset.spread * 10).toFixed(asset.digits),
+                        (v - effectiveSpread * 10).toFixed(asset.digits),
                       );
                     }}
                     className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -2258,7 +2272,7 @@ function TradePanel({
                         takeProfitVal || ask.toFixed(asset.digits),
                       );
                       setTakeProfitVal(
-                        (v + asset.spread * 10).toFixed(asset.digits),
+                        (v + effectiveSpread * 10).toFixed(asset.digits),
                       );
                     }}
                     className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -2388,6 +2402,10 @@ function AssetsPageInner() {
             const next: Record<string, number> = {};
             ASSETS.forEach((a) => {
               const base = tickBasesRef.current[a.id] ?? a.basePrice;
+              if (isWeekend()) {
+                next[a.id] = base;
+                return;
+              }
               // Só flutua quando o mercado está aberto (live) ou sem símbolo Finnhub (simulado)
               const isLive =
                 !a.finnhubSymbol ||
@@ -2599,7 +2617,7 @@ function AssetsPageInner() {
                 const isFav = favorites.has(asset.id);
                 const isSelected = selectedAsset?.id === asset.id;
                 const bid = tickPrices[asset.id] ?? price;
-                const ask = bid + asset.spread;
+                const ask = bid + getEffectiveSpread(asset);
                 const bsPct = Math.min(
                   95,
                   Math.max(5, Math.round(50 + change * 5)),
