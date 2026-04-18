@@ -788,14 +788,14 @@ function useTickPrice(
   }, [basePrice]);
 
   useEffect(() => {
-    // Flutua até ±60% do spread em cada tick (~120-220ms) para resposta mais viva
+    // Flutua até ±80% do spread em cada tick (~70-130ms) para resposta ultra-viva
     // Quando mercado fechado (isLive=false) mostra o preço base fixo
     let id: ReturnType<typeof setTimeout>;
     const schedule = () => {
       id = setTimeout(
         () => {
           if (liveRef.current) {
-            const maxDelta = spread * 0.6;
+            const maxDelta = spread * 0.8;
             setTickPrice(
               baseRef.current + (Math.random() - 0.5) * 2 * maxDelta,
             );
@@ -804,7 +804,7 @@ function useTickPrice(
           }
           schedule();
         },
-        120 + Math.random() * 100,
+        70 + Math.random() * 60,
       );
     };
     schedule();
@@ -1610,7 +1610,7 @@ function useFinnhubPrices(assets: Asset[]) {
       const patch: Record<string, number> = {};
       assets.forEach((a) => {
         if (!a.finnhubSymbol) {
-          const vol = a.basePrice * 0.0008;
+          const vol = a.basePrice * 0.0012;
           const delta = (Math.random() - 0.5) * vol;
           // Usa pricesRef (não setState updater) — evita chamar priceStore.set dentro de render
           patch[a.id] = Math.max(
@@ -1620,7 +1620,7 @@ function useFinnhubPrices(assets: Asset[]) {
         }
       });
       if (Object.keys(patch).length) update(patch);
-    }, 600);
+    }, 250);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [update]);
@@ -2282,7 +2282,7 @@ function AssetsPageInner() {
 
   const { prices, liveAssets } = useFinnhubPrices(ASSETS);
 
-  // ── Micro-tick para a tabela (±60% do spread, 120-220ms) ─────────────────
+  // ── Micro-tick para a tabela (±80% do spread, 70-130ms) ──────────────────
   const [tickPrices, setTickPrices] = useState<Record<string, number>>(() =>
     Object.fromEntries(ASSETS.map((a) => [a.id, prices[a.id] ?? a.basePrice])),
   );
@@ -2310,7 +2310,7 @@ function AssetsPageInner() {
                 isMarketDay() ||
                 liveAssetsRef.current.has(a.id);
               if (isLive) {
-                const maxDelta = a.spread * 0.6;
+                const maxDelta = a.spread * 0.8;
                 next[a.id] = base + (Math.random() - 0.5) * 2 * maxDelta;
               } else {
                 next[a.id] = base; // estático quando fechado
@@ -2320,7 +2320,7 @@ function AssetsPageInner() {
           });
           schedule();
         },
-        120 + Math.random() * 100,
+        70 + Math.random() * 60,
       );
     };
     schedule();

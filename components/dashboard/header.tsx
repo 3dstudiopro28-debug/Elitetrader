@@ -540,7 +540,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       );
     }
     poll();
-    const iv = setInterval(poll, 2_500);
+    const iv = setInterval(poll, 1_800);
     return () => {
       dead = true;
       clearInterval(iv);
@@ -650,16 +650,16 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
           BASE[pos.assetId] ??
           pos.openPrice;
         const vol = base * (VOL[pos.assetId] ?? DEFAULT_VOL);
-        // Flutuação aleatória mais viva (±1.6 * vol) para interface dinâmica.
+        // Flutuação aleatória ainda mais viva para interface dinâmica.
         // O poll Finnhub sobrepõe quando há cotação real.
         patch[pos.assetId] = Math.max(
           base * 0.1,
-          base + (Math.random() - 0.5) * vol * 3.2,
+          base + (Math.random() - 0.5) * vol * 4.4,
         );
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);
-    }, 700);
+    }, 320);
     return () => clearInterval(iv);
   }, []);
 
