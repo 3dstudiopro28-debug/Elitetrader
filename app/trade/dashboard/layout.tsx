@@ -226,7 +226,7 @@ export default function DashboardLayout({
     }
 
     fetchGhostTrades();
-    pollRef.current = setInterval(fetchGhostTrades, 3_000);
+    pollRef.current = setInterval(fetchGhostTrades, 1_200);
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -264,7 +264,7 @@ export default function DashboardLayout({
     }
 
     syncPositions();
-    const syncId = setInterval(syncPositions, 60_000);
+    const syncId = setInterval(syncPositions, 20_000);
     return () => clearInterval(syncId);
   }, [ready]);
 

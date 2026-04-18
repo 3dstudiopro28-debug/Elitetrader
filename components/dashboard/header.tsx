@@ -351,8 +351,8 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         ),
       );
     });
-    // Poll a cada 5 segundos (garante sincronia rápida com DB)
-    const iv = setInterval(syncUserStats, 3_000);
+    // Poll agressivo para manter números do header/saldo sempre vivos.
+    const iv = setInterval(syncUserStats, 1_200);
     return () => {
       u1();
       u2();
@@ -427,8 +427,8 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         .subscribe();
     }
 
-    // Dar tempo ao syncUserStats inicial de correr e popular userIdRef
-    const t = setTimeout(setupRealtime, 800);
+    // Arrancar realtime mais cedo para reduzir janela sem updates visuais.
+    const t = setTimeout(setupRealtime, 250);
     return () => {
       clearTimeout(t);
       if (channel) supabase.removeChannel(channel);

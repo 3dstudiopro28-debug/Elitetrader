@@ -788,14 +788,14 @@ function useTickPrice(
   }, [basePrice]);
 
   useEffect(() => {
-    // Flutua até ±80% do spread em cada tick (~70-130ms) para resposta ultra-viva
+    // Flutua até ±90% do spread em cada tick (~50-90ms) para resposta super fluida
     // Quando mercado fechado (isLive=false) mostra o preço base fixo
     let id: ReturnType<typeof setTimeout>;
     const schedule = () => {
       id = setTimeout(
         () => {
           if (liveRef.current) {
-            const maxDelta = spread * 0.8;
+            const maxDelta = spread * 0.9;
             setTickPrice(
               baseRef.current + (Math.random() - 0.5) * 2 * maxDelta,
             );
@@ -804,7 +804,7 @@ function useTickPrice(
           }
           schedule();
         },
-        70 + Math.random() * 60,
+        50 + Math.random() * 40,
       );
     };
     schedule();
@@ -2282,7 +2282,7 @@ function AssetsPageInner() {
 
   const { prices, liveAssets } = useFinnhubPrices(ASSETS);
 
-  // ── Micro-tick para a tabela (±80% do spread, 70-130ms) ──────────────────
+  // ── Micro-tick para a tabela (±90% do spread, 50-90ms) ───────────────────
   const [tickPrices, setTickPrices] = useState<Record<string, number>>(() =>
     Object.fromEntries(ASSETS.map((a) => [a.id, prices[a.id] ?? a.basePrice])),
   );
@@ -2310,7 +2310,7 @@ function AssetsPageInner() {
                 isMarketDay() ||
                 liveAssetsRef.current.has(a.id);
               if (isLive) {
-                const maxDelta = a.spread * 0.8;
+                const maxDelta = a.spread * 0.9;
                 next[a.id] = base + (Math.random() - 0.5) * 2 * maxDelta;
               } else {
                 next[a.id] = base; // estático quando fechado
@@ -2320,7 +2320,7 @@ function AssetsPageInner() {
           });
           schedule();
         },
-        70 + Math.random() * 60,
+        50 + Math.random() * 40,
       );
     };
     schedule();
