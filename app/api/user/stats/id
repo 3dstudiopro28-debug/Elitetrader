@@ -1,0 +1,174 @@
+// ─── PATCH /api/admin/users/[id] ─────────────────────────────────────────────
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const unauth = requireAdmin(req);
+  if (unauth) return unauth;
+
+  const { id } = await params;
+
+  try {
+    const body = await req.json();
+
+    if (hasServiceRole()) {
+      const sb = createServerClient();
+      const warnings: string[] = [];
+
+      // =====================================================================
+      // DIAGNÓSTICO: Adicionar logs para cada chamada ao DB
+      // =====================================================================
+      console.log(`\n[DIAG] Iniciando PATCH para user: ${id}`);
+
+      console.log("[DIAG-1] Lendo contas e perfil...");
+      const [
+        { data: currentAccounts, error: accountsError },
+        { data: currentProfile, error: profileError },
+      ] = await Promise.all([
+        sb
+          .from("accounts")
+          .select("id, balance, account_mode:mode")
+          .eq("user_id", id),
+        sb.from("profiles").select("profile_mode:mode").eq("id", id).single(),
+      ]);
+
+      if (accountsError)
+        console.error(
+          "[DIAG-1-ERROR] Erro ao ler contas:",
+          accountsError.message,
+        );
+      if (profileError)
+        console.error(
+          "[DIAG-1-ERROR] Erro ao ler perfil:",
+          profileError.message,
+        );
+
+      const realAccount =
+        (
+          currentAccounts as
+            | { id: string; balance: number; account_mode: string }[]
+            | null
+        )?.find((a) => a.account_mode === "real") ?? null;
+
+      const currentBalance = realAccount?.balance ?? null;
+      const currentAccountId = realAccount?.id ?? null;
+
+      const profilePatch: Record<string, unknown> = {};
+      if ("firstName" in body || "lastName" in body) {
+        profilePatch.first_name = body.firstName ?? "";
+        profilePatch.last_name = body.lastName ?? "";
+      }
+      // ... (outros campos do perfil)
+
+      if (Object.keys(profilePatch).length > 0) {
+        console.log("[DIAG-2] Atualizando perfil...");
+        const { error: profErr } = await sb
+          .from("profiles")
+          .update(profilePatch)
+          .eq("id", id);
+        if (profErr) {
+          console.error(
+            "[DIAG-2-ERROR] Erro ao atualizar perfil:",
+            profErr.message,
+          );
+          warnings.push("Perfil: " + profErr.message);
+        }
+      }
+
+      const sharedFields: Record<string, unknown> = {};
+      if ("leverage" in body) sharedFields.leverage = body.leverage;
+      if ("currency" in body) sharedFields.currency = body.currency;
+
+      const newRealBalance: number | null =
+        "balance" in body && typeof body.balance === "number"
+          ? body.balance
+          : null;
+
+      if (Object.keys(sharedFields).length > 0 && newRealBalance === null) {
+        if (currentAccountId) {
+          console.log("[DIAG-3] Atualizando campos partilhados (sem saldo)...");
+          const { error: sfErr } = await sb
+            .from("accounts")
+            .update(sharedFields)
+            .eq("id", currentAccountId);
+          if (sfErr) {
+            console.error(
+              "[DIAG-3-ERROR] Erro em campos partilhados:",
+              sfErr.message,
+            );
+            warnings.push("Conta (campos): " + sfErr.message);
+          }
+        }
+      }
+
+      if (newRealBalance !== null) {
+        const prevBalance = Number(currentBalance ?? 0);
+
+        console.log("[DIAG-4] Lendo posições abertas...");
+        const { data: openRows, error: openErr } = await sb
+          .from("positions")
+          .select("id, type, lots, open_price, pnl")
+          .eq("user_id", id)
+          .eq("status", "open");
+
+        if (openErr) {
+          console.error(
+            "[DIAG-4-ERROR] Erro ao ler posições:",
+            openErr.message,
+          );
+        }
+        const openPositions = (openRows ?? []) as any[];
+
+        if (openPositions.length === 0) {
+          if (currentAccountId) {
+            console.log("[DIAG-5A] Atualizando saldo (conta existente)...");
+            const { error: updateErr } = await sb
+              .from("accounts")
+              .update({ balance: newRealBalance, ...sharedFields })
+              .eq("id", currentAccountId);
+            if (updateErr) {
+              console.error(
+                "[DIAG-5A-ERROR] Erro ao atualizar saldo:",
+                updateErr.message,
+              );
+              warnings.push("Conta (update): " + updateErr.message);
+            }
+          } else {
+            console.log("[DIAG-5B] Inserindo saldo (conta nova)...");
+            const { error: insertErr } = await sb.from("accounts").insert({
+              user_id: id,
+              mode: "real",
+              balance: newRealBalance,
+              ...sharedFields,
+            });
+            if (insertErr) {
+              console.error(
+                "[DIAG-5B-ERROR] Erro ao inserir saldo:",
+                insertErr.message,
+              );
+              warnings.push("Conta (insert): " + insertErr.message);
+            }
+          }
+        } else {
+          // Lógica de fecho de posições...
+          console.log("[DIAG-6] Fechando posições e atualizando saldo...");
+          // ... a sua lógica de fecho de posições aqui ...
+          // Se o erro estiver aqui dentro, este será o último log a aparecer.
+        }
+      }
+
+      console.log("[DIAG-FINAL] PATCH concluído.");
+      return NextResponse.json({
+        success: true,
+        source: "supabase",
+        warnings: warnings.length > 0 ? warnings : undefined,
+      });
+    }
+
+    // ... (código de fallback para userStore)
+    return NextResponse.json({ success: true, source: "local" });
+  } catch (e: any) {
+    console.error("[DIAG-CATCH-ALL] Erro fatal no PATCH:", e.message);
+    return NextResponse.json({ error: "Erro interno fatal" }, { status: 500 });
+  }
+}

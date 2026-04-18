@@ -39,7 +39,9 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as { action?: string };
     const action = body.action ?? "ping";
-    const writeSb = hasServiceRole() ? createServerClient() : createUserClient(token);
+    const writeSb = hasServiceRole()
+      ? createServerClient()
+      : createUserClient(token);
 
     if (action === "offline") {
       userPresenceStore.markOffline(user.id);
