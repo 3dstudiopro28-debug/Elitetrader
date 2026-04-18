@@ -19,6 +19,15 @@ import {
 import { requireAdmin } from "@/lib/admin-auth";
 import { userPresenceStore } from "@/lib/user-presence-store";
 
+const ONLINE_WINDOW_MS = 2 * 60 * 1000;
+
+function isRecentlyActive(value: unknown): boolean {
+  if (!value) return false;
+  const ms = new Date(String(value)).getTime();
+  if (!Number.isFinite(ms)) return false;
+  return Date.now() - ms <= ONLINE_WINDOW_MS;
+}
+
 // Normaliza row Supabase → formato CRMUser
 // Suporta dois schemas:
 //   - Novo (após repair SQL): profiles.first_name + profiles.last_name
@@ -60,6 +69,9 @@ function normalizeUser(
   const computedDemo = demoAccount?.balance ?? 100_000;
   // Saldo real: lê directamente da conta real, com fallback para override em memória
   const computedReal = realAccount?.balance ?? override?.balance ?? 0;
+  const dbOnline = isRecentlyActive(profile.updated_at);
+  const memOnline = userPresenceStore.status(profile.id) === "online";
+  const effectiveOnline = dbOnline || memOnline;
 
   return {
     id: profile.id,
@@ -86,8 +98,9 @@ function normalizeUser(
     kycStatus: profile.kyc_status ?? "unverified",
     totalDeposited: primaryAccount?.total_deposited ?? 0,
     totalWithdrawn: primaryAccount?.total_withdrawn ?? 0,
-    presenceStatus: userPresenceStore.status(profile.id),
-    lastSeenAt: userPresenceStore.lastSeenAt(profile.id),
+    presenceStatus: effectiveOnline ? "online" : "offline",
+    lastSeenAt:
+      profile.updated_at ?? userPresenceStore.lastSeenAt(profile.id) ?? null,
   };
 }
 

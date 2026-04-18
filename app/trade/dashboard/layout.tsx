@@ -269,7 +269,7 @@ export default function DashboardLayout({
     }
 
     syncPositions();
-    const syncId = setInterval(syncPositions, 20_000);
+    const syncId = setInterval(syncPositions, 8_000);
     return () => clearInterval(syncId);
   }, [ready]);
 
@@ -351,7 +351,20 @@ export default function DashboardLayout({
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
+    const onBeforeUnload = () => {
+      try {
+        const payload = new Blob([JSON.stringify({ action: "offline" })], {
+          type: "application/json",
+        });
+        navigator.sendBeacon("/api/user/presence", payload);
+      } catch {
+        // silencioso
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
     return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (presenceRef.current) clearInterval(presenceRef.current);
       pingPresence("offline");
