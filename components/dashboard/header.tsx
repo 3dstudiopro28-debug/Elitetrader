@@ -435,7 +435,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
     };
   }, [syncUserStats]);
 
-  // Live price polling every 8s — único poller Finnhub da aplicação.
+  // Live price polling rápido — único poller Finnhub da aplicação.
   // Escreve no priceStore (cache partilhado) → portfolio e outros subscrevem.
   // TP/SL aqui: funciona em qualquer página, não só no portfolio.
   useEffect(() => {
@@ -540,14 +540,14 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       );
     }
     poll();
-    const iv = setInterval(poll, 8000);
+    const iv = setInterval(poll, 2_500);
     return () => {
       dead = true;
       clearInterval(iv);
     };
   }, [recompute, refreshNotifs]);
 
-  // ─── Simulação 2s para TODOS os activos com posições abertas ────────────
+  // ─── Simulação rápida para TODOS os activos com posições abertas ─────────
   // Garante que equity/margem/PnL flutuam em qualquer página da aplicação.
   // O poll Finnhub (8s) sobrepõe com preços reais quando disponíveis.
   // Sem esta simulação, assets com código Finnhub mas sem cotação live (d.c=0)
@@ -593,7 +593,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       qqq: 512.0,
       gld: 318.0,
     };
-    // Volatilidade realista por activo (fracção do preço por tick de 2s)
+    // Volatilidade realista por activo (fracção do preço por tick rápido)
     const VOL: Record<string, number> = {
       eurusd: 0.00012,
       eurgbp: 0.00012,
@@ -650,16 +650,16 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
           BASE[pos.assetId] ??
           pos.openPrice;
         const vol = base * (VOL[pos.assetId] ?? DEFAULT_VOL);
-        // Flutuação aleatória ±vol — Finnhub poll de 8s corrige quando há cotação real
-        // (para assets sem override — com override, Finnhub é ignorado)
+        // Flutuação aleatória mais viva (±1.6 * vol) para interface dinâmica.
+        // O poll Finnhub sobrepõe quando há cotação real.
         patch[pos.assetId] = Math.max(
           base * 0.1,
-          base + (Math.random() - 0.5) * vol * 2,
+          base + (Math.random() - 0.5) * vol * 3.2,
         );
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);
-    }, 2_000);
+    }, 700);
     return () => clearInterval(iv);
   }, []);
 

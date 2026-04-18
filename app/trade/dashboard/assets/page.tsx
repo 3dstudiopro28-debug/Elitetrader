@@ -48,7 +48,7 @@ const CURRENCY_FLAGS: Record<string, string> = {
 /** Converte um símbolo de par (ex. EURUSD) num array [baseFlag, quoteFlag] */
 function getPairFlags(symbol: string): [string, string] | null {
   // Tentar match de 6 caracteres (ex. EURUSD → EUR + USD)
-  const base  = symbol.slice(0, 3).toUpperCase();
+  const base = symbol.slice(0, 3).toUpperCase();
   const quote = symbol.slice(3, 6).toUpperCase();
   const f1 = CURRENCY_FLAGS[base];
   const f2 = CURRENCY_FLAGS[quote];
@@ -57,17 +57,41 @@ function getPairFlags(symbol: string): [string, string] | null {
 }
 
 /** Ícone de ativo: dois flags sobrepostos para pares; emoji simples para os restantes */
-function AssetIcon({ asset, size = "md" }: { asset: Asset; size?: "sm" | "md" | "lg" }) {
+function AssetIcon({
+  asset,
+  size = "md",
+}: {
+  asset: Asset;
+  size?: "sm" | "md" | "lg";
+}) {
   const pair = getPairFlags(asset.symbol);
   const sizes = { sm: "text-sm", md: "text-xl", lg: "text-2xl" };
-  const boxSm = { sm: "w-6 h-6",  md: "w-8 h-8",  lg: "w-9 h-9" };
-  const boxQ  = { sm: "w-4 h-4",  md: "w-5 h-5",  lg: "w-6 h-6" };
+  const boxSm = { sm: "w-6 h-6", md: "w-8 h-8", lg: "w-9 h-9" };
+  const boxQ = { sm: "w-4 h-4", md: "w-5 h-5", lg: "w-6 h-6" };
   const shift = { sm: "text-[9px]", md: "text-[11px]", lg: "text-[13px]" };
   if (pair) {
     return (
-      <span className="relative inline-flex items-center flex-shrink-0" style={{ width: size === "sm" ? 28 : size === "lg" ? 36 : 32, height: size === "sm" ? 20 : size === "lg" ? 26 : 22 }}>
-        <span className={`absolute left-0 top-0 ${sizes[size]} leading-none select-none`}>{pair[0]}</span>
-        <span className={`absolute ${shift[size]} leading-none select-none`} style={{ left: size === "sm" ? 12 : size === "lg" ? 18 : 15, top: size === "sm" ? 6 : size === "lg" ? 9 : 8 }}>{pair[1]}</span>
+      <span
+        className="relative inline-flex items-center flex-shrink-0"
+        style={{
+          width: size === "sm" ? 28 : size === "lg" ? 36 : 32,
+          height: size === "sm" ? 20 : size === "lg" ? 26 : 22,
+        }}
+      >
+        <span
+          className={`absolute left-0 top-0 ${sizes[size]} leading-none select-none`}
+        >
+          {pair[0]}
+        </span>
+        <span
+          className={`absolute ${shift[size]} leading-none select-none`}
+          style={{
+            left: size === "sm" ? 12 : size === "lg" ? 18 : 15,
+            top: size === "sm" ? 6 : size === "lg" ? 9 : 8,
+          }}
+        >
+          {pair[1]}
+        </span>
       </span>
     );
   }
@@ -764,14 +788,14 @@ function useTickPrice(
   }, [basePrice]);
 
   useEffect(() => {
-    // Flutua até ±25% do spread em cada tick (~700-1100ms)
+    // Flutua até ±60% do spread em cada tick (~120-220ms) para resposta mais viva
     // Quando mercado fechado (isLive=false) mostra o preço base fixo
     let id: ReturnType<typeof setTimeout>;
     const schedule = () => {
       id = setTimeout(
         () => {
           if (liveRef.current) {
-            const maxDelta = spread * 0.25;
+            const maxDelta = spread * 0.6;
             setTickPrice(
               baseRef.current + (Math.random() - 0.5) * 2 * maxDelta,
             );
@@ -780,7 +804,7 @@ function useTickPrice(
           }
           schedule();
         },
-        700 + Math.random() * 400,
+        120 + Math.random() * 100,
       );
     };
     schedule();
@@ -837,8 +861,14 @@ function ChartModal({
   const lotsNum = parseFloat(lots) || 0.01;
   const contractSize = getContractSize(asset);
   // Para o separador "lotes": margem = lots × contractSize × preço / alavancagem
-  const calcLots = tab === "amount" ? amountNum * selectedLeverage / (contractSize * displayPrice) : lotsNum;
-  const calcAmount = tab === "lots" ? lotsNum * contractSize * displayPrice / selectedLeverage : amountNum;
+  const calcLots =
+    tab === "amount"
+      ? (amountNum * selectedLeverage) / (contractSize * displayPrice)
+      : lotsNum;
+  const calcAmount =
+    tab === "lots"
+      ? (lotsNum * contractSize * displayPrice) / selectedLeverage
+      : amountNum;
   const leveraged = calcAmount * selectedLeverage;
   const sim1Pct = leveraged * 0.01;
   const simTP = (() => {
@@ -900,11 +930,11 @@ function ChartModal({
     const cs = getContractSize(asset);
     const lotsN =
       tab === "amount"
-        ? (parseFloat(amount) || 100) * selectedLeverage / (cs * execPrice)
+        ? ((parseFloat(amount) || 100) * selectedLeverage) / (cs * execPrice)
         : parseFloat(lots) || 0.01;
     const amountN =
       tab === "lots"
-        ? (parseFloat(lots) || 0.01) * cs * execPrice / selectedLeverage
+        ? ((parseFloat(lots) || 0.01) * cs * execPrice) / selectedLeverage
         : parseFloat(amount) || 100;
     // ── Verificação de saldo ──────────────────────────────────────────────────
     const bal = getCurrentBalance();
@@ -1580,7 +1610,7 @@ function useFinnhubPrices(assets: Asset[]) {
       const patch: Record<string, number> = {};
       assets.forEach((a) => {
         if (!a.finnhubSymbol) {
-          const vol = a.basePrice * 0.0002;
+          const vol = a.basePrice * 0.0008;
           const delta = (Math.random() - 0.5) * vol;
           // Usa pricesRef (não setState updater) — evita chamar priceStore.set dentro de render
           patch[a.id] = Math.max(
@@ -1590,7 +1620,7 @@ function useFinnhubPrices(assets: Asset[]) {
         }
       });
       if (Object.keys(patch).length) update(patch);
-    }, 2000);
+    }, 600);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [update]);
@@ -1639,8 +1669,14 @@ function TradePanel({
   const lotsNum = parseFloat(lots) || 0.01;
   const contractSize = getContractSize(asset);
   // Para o separador "lotes": margem = lots × contractSize × preço / alavancagem
-  const calcLots = tab === "amount" ? amountNum * selectedLeverage / (contractSize * displayPrice) : lotsNum;
-  const calcAmount = tab === "lots" ? lotsNum * contractSize * displayPrice / selectedLeverage : amountNum;
+  const calcLots =
+    tab === "amount"
+      ? (amountNum * selectedLeverage) / (contractSize * displayPrice)
+      : lotsNum;
+  const calcAmount =
+    tab === "lots"
+      ? (lotsNum * contractSize * displayPrice) / selectedLeverage
+      : amountNum;
   const leveraged = calcAmount * selectedLeverage;
   const sim1Pct = leveraged * 0.01;
   const simTP = (() => {
@@ -1694,11 +1730,11 @@ function TradePanel({
     const cs = getContractSize(asset);
     const lotsN =
       tab === "amount"
-        ? (parseFloat(amount) || 100) * selectedLeverage / (cs * execPrice)
+        ? ((parseFloat(amount) || 100) * selectedLeverage) / (cs * execPrice)
         : parseFloat(lots) || 0.01;
     const amountN =
       tab === "lots"
-        ? (parseFloat(lots) || 0.01) * cs * execPrice / selectedLeverage
+        ? ((parseFloat(lots) || 0.01) * cs * execPrice) / selectedLeverage
         : parseFloat(amount) || 100;
     // ── Verificação de saldo ──────────────────────────────────────────────────
     const bal = getCurrentBalance();
@@ -2246,7 +2282,7 @@ function AssetsPageInner() {
 
   const { prices, liveAssets } = useFinnhubPrices(ASSETS);
 
-  // ── Micro-tick para a tabela (±25% do spread, 700-1100ms) ────────────────
+  // ── Micro-tick para a tabela (±60% do spread, 120-220ms) ─────────────────
   const [tickPrices, setTickPrices] = useState<Record<string, number>>(() =>
     Object.fromEntries(ASSETS.map((a) => [a.id, prices[a.id] ?? a.basePrice])),
   );
@@ -2274,7 +2310,7 @@ function AssetsPageInner() {
                 isMarketDay() ||
                 liveAssetsRef.current.has(a.id);
               if (isLive) {
-                const maxDelta = a.spread * 0.25;
+                const maxDelta = a.spread * 0.6;
                 next[a.id] = base + (Math.random() - 0.5) * 2 * maxDelta;
               } else {
                 next[a.id] = base; // estático quando fechado
@@ -2284,7 +2320,7 @@ function AssetsPageInner() {
           });
           schedule();
         },
-        700 + Math.random() * 400,
+        120 + Math.random() * 100,
       );
     };
     schedule();
@@ -2416,8 +2452,8 @@ function AssetsPageInner() {
             </div>
             <p className="text-[11px] text-muted-foreground">
               Preco vai subir:{" "}
-              <span className="text-green-500 font-medium">Comprar</span> | Preco
-              vai descer:{" "}
+              <span className="text-green-500 font-medium">Comprar</span> |
+              Preco vai descer:{" "}
               <span className="text-red-500 font-medium">Vender</span>
             </p>
           </div>
