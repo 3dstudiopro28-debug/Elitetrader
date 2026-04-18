@@ -116,7 +116,9 @@ export default function DashboardPage() {
     ),
   );
   const [userName, setUserName] = useState<string | null>(null);
-  const [mode, setMode] = useState<"demo" | "real">("demo");
+  const [mode, setMode] = useState<"demo" | "real">(() =>
+    accountStore.getMode(),
+  );
   const [openCount, setOpenCount] = useState(0);
   const [activeMarketCount, setActiveMarketCount] = useState(0);
   const [flashes, setFlashes] = useState<Record<string, "up" | "down">>({});
@@ -647,7 +649,6 @@ export default function DashboardPage() {
           );
         })}
       </motion.div>
-
     </div>
   );
 }

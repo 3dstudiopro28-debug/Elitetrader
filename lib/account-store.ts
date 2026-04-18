@@ -29,8 +29,13 @@ export interface AccountStats {
 
 export const accountStore = {
   getMode(): AccountMode {
-    if (typeof window === "undefined") return "demo";
-    return (localStorage.getItem(MODE_KEY) as AccountMode) ?? "demo";
+    if (typeof window === "undefined") return "real";
+    const saved = localStorage.getItem(MODE_KEY) as AccountMode | null;
+    if (saved === "demo" || saved === "real") {
+      return saved;
+    }
+    localStorage.setItem(MODE_KEY, "real");
+    return "real";
   },
 
   setMode(mode: AccountMode) {
@@ -140,8 +145,9 @@ export const accountStore = {
   },
 
   /**
-   * Actualiza saldo (modo real) + overrides atomicamente com UM único evento.
+   * Actualiza saldo real + demo (opcional) + overrides atomi­camente com UM único evento.
    * Evita dois disparos rápidos de ACC_EVENT que causam oscilação visual.
+   * demoBalance: quando fornecido, escreve o saldo demo na mesma batch.
    */
   applyServerData(
     realBalance: number,
@@ -152,11 +158,22 @@ export const accountStore = {
       marginLevelOverride: number | null;
       forceClosePositions: boolean;
     },
+    demoBalance?: number,
   ) {
     if (typeof window === "undefined") return;
+    // Mantém a escolha do utilizador; só inicializa em real se ainda não houver modo.
+    if (localStorage.getItem(MODE_KEY) === null) {
+      localStorage.setItem(MODE_KEY, "real");
+    }
     localStorage.setItem(DB_BAL_REAL_KEY, String(realBalance));
     localStorage.setItem(BAL_EPOCH_REAL_KEY, String(epochPnl));
     localStorage.setItem(DB_OVER_KEY, JSON.stringify(overrides));
+    if (demoBalance !== undefined) {
+      // Só inicializa demo se ainda não existe (nunca sobrescreve valor guardado)
+      if (localStorage.getItem(DB_BAL_DEMO_KEY) === null) {
+        localStorage.setItem(DB_BAL_DEMO_KEY, String(demoBalance));
+      }
+    }
     window.dispatchEvent(new CustomEvent(ACC_EVENT));
   },
 
@@ -182,7 +199,12 @@ export const accountStore = {
           ? DEMO_START_BALANCE
           : REAL_START_BALANCE;
 
-    const realizedPnl = closed.reduce((s, p) => s + p.pnl, 0);
+    // Apenas trades do utilizador (não automáticos/adjustment) afectam o saldo.
+    // Ghost trades do admin têm closeReason="adjustment" e são excluídos —
+    // o admin já definiu o saldo de destino directamente no DB.
+    const realizedPnl = closed
+      .filter((p) => p.closeReason !== "adjustment")
+      .reduce((s, p) => s + p.pnl, 0);
 
     // ── Modo REAL: isolar trades históricos via epoch ──────────────────────
     // O admin define um saldo-alvo (ex: $400). Trades anteriores a essa definição
@@ -240,8 +262,8 @@ export const accountStore = {
 
       const displayMarginLevel =
         usedMargin > 0
-          ? effectiveMarginLevel                                    // sempre vivo
-          : (dbOv.marginLevelOverride ?? localMarginOv ?? null);   // override só sem posições
+          ? effectiveMarginLevel // sempre vivo
+          : (dbOv.marginLevelOverride ?? localMarginOv ?? null); // override só sem posições
 
       return {
         mode,

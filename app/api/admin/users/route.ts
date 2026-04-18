@@ -29,8 +29,8 @@ function normalizeUser(
   realAccount: any,
   override: AdminOverrideEntry | null,
 ) {
-  // A conta "principal" para leverage/currency/status é a demo se existir, senão a real
-  const primaryAccount = demoAccount ?? realAccount ?? null;
+  // A conta "principal" para leverage/currency/status deve priorizar a real
+  const primaryAccount = realAccount ?? demoAccount ?? null;
 
   // Suporte a ambos os schemas: first_name/last_name (novo) ou name (antigo)
   const firstName =
@@ -46,12 +46,12 @@ function normalizeUser(
         ? String(profile.name).split(" ").slice(1).join(" ")
         : "";
 
-  // mode: override do admin tem prioridade; depois conta demo/real; default "demo"
+  // mode: override do admin tem prioridade; depois conta real/demo; default "real"
   const effectiveMode =
     (override?.mode as "demo" | "real" | undefined) ??
     primaryAccount?.mode ??
     profile.mode ??
-    "demo";
+    "real";
   const effectiveStatus = primaryAccount?.status ?? profile.status ?? "active";
 
   // Saldo demo: sempre $100k (conta de treino)
@@ -89,8 +89,8 @@ function normalizeUser(
 
 // ─── GET /api/admin/users ─────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const unauth = requireAdmin(req)
-  if (unauth) return unauth
+  const unauth = requireAdmin(req);
+  if (unauth) return unauth;
 
   const { searchParams } = new URL(req.url);
   const search = searchParams.get("q")?.toLowerCase() ?? "";
@@ -176,8 +176,8 @@ export async function GET(req: NextRequest) {
 
 // ─── POST /api/admin/users ────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  const unauth = requireAdmin(req)
-  if (unauth) return unauth
+  const unauth = requireAdmin(req);
+  if (unauth) return unauth;
 
   try {
     const body = await req.json();
@@ -216,6 +216,7 @@ export async function POST(req: NextRequest) {
             last_name: lastName ?? "",
             phone: phone ?? "",
             country: country ?? "",
+            mode: "real",
           })
           .eq("id", authData.user.id);
       }
