@@ -824,7 +824,6 @@ function useTickPrice(
   // para reduzir divergência visual entre gráfico e bid/ask.
   useEffect(() => {
     if (finnhubSymbol !== "OANDA:XAU_USD") return;
-    if (isWeekend()) return;
 
     let dead = false;
     async function syncGoldQuote() {
@@ -1599,7 +1598,6 @@ function useFinnhubPrices(assets: Asset[]) {
   // REST — fetch inicial + retry a cada 30s para activos ainda não confirmados
   useEffect(() => {
     const fetchAll = async (onlyUnlive = false) => {
-      if (isWeekend()) return;
       for (const asset of assets) {
         // Ouro: fallback dedicado sem API key para evitar ficar preso em valor antigo
         if (asset.id === "xauusd") {
