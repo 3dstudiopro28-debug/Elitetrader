@@ -771,6 +771,7 @@ function useTickPrice(
   basePrice: number,
   spread: number,
   isLive: boolean,
+  finnhubSymbol?: string,
 ): number {
   const [tickPrice, setTickPrice] = useState(basePrice);
   const baseRef = useRef(basePrice);
@@ -810,6 +811,42 @@ function useTickPrice(
     schedule();
     return () => clearTimeout(id);
   }, [spread]);
+
+  // Para Ouro (XAUUSD), ancorar o preço do botão à mesma fonte OANDA/Finnhub
+  // para reduzir divergência visual entre gráfico e bid/ask.
+  useEffect(() => {
+    if (finnhubSymbol !== "OANDA:XAU_USD") return;
+
+    let dead = false;
+    async function syncGoldQuote() {
+      try {
+        const r = await fetch(
+          `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(finnhubSymbol)}&token=${FINNHUB_TOKEN}`,
+          { cache: "no-store" },
+        );
+        const d = await r.json();
+        const q =
+          typeof d?.c === "number" && d.c > 0
+            ? d.c
+            : typeof d?.pc === "number" && d.pc > 0
+              ? d.pc
+              : null;
+        if (!dead && q !== null) {
+          baseRef.current = q;
+          setTickPrice(q);
+        }
+      } catch {
+        /* silent */
+      }
+    }
+
+    syncGoldQuote();
+    const id = setInterval(syncGoldQuote, 1_200);
+    return () => {
+      dead = true;
+      clearInterval(id);
+    };
+  }, [finnhubSymbol]);
 
   return tickPrice;
 }
@@ -853,7 +890,12 @@ function ChartModal({
   const [pendingPrice, setPendingPrice] = useState("");
 
   // Preço com micro-fluctuação para display (apenas quando mercado aberto)
-  const tickPrice = useTickPrice(price, asset.spread, isLive);
+  const tickPrice = useTickPrice(
+    price,
+    asset.spread,
+    isLive,
+    asset.finnhubSymbol,
+  );
   const bid = tickPrice;
   const ask = tickPrice + asset.spread;
   const displayPrice = tradeType === "buy" ? ask : bid;
@@ -1660,7 +1702,12 @@ function TradePanel({
   const [isFav, setIsFav] = useState(false);
 
   // Preço com micro-fluctuação para display (apenas quando mercado aberto)
-  const tickPrice = useTickPrice(price, asset.spread, isLive);
+  const tickPrice = useTickPrice(
+    price,
+    asset.spread,
+    isLive,
+    asset.finnhubSymbol,
+  );
   const bid = tickPrice;
   const ask = tickPrice + asset.spread;
   const displayPrice = tradeType === "buy" ? ask : bid;
