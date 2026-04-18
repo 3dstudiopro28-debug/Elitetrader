@@ -820,17 +820,37 @@ function useTickPrice(
     let dead = false;
     async function syncGoldQuote() {
       try {
-        const r = await fetch(
-          `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(finnhubSymbol)}&token=${FINNHUB_TOKEN}`,
-          { cache: "no-store" },
-        );
-        const d = await r.json();
-        const q =
-          typeof d?.c === "number" && d.c > 0
-            ? d.c
-            : typeof d?.pc === "number" && d.pc > 0
-              ? d.pc
-              : null;
+        // 1) Tentar Finnhub (feed primário)
+        let q: number | null = null;
+        try {
+          const r = await fetch(
+            `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(finnhubSymbol)}&token=${FINNHUB_TOKEN}`,
+            { cache: "no-store" },
+          );
+          const d = await r.json();
+          q =
+            typeof d?.c === "number" && d.c > 0
+              ? d.c
+              : typeof d?.pc === "number" && d.pc > 0
+                ? d.pc
+                : null;
+        } catch {
+          q = null;
+        }
+
+        // 2) Fallback sem API key para manter XAUUSD alinhado ao gráfico
+        if (q === null) {
+          try {
+            const r2 = await fetch("https://api.gold-api.com/price/XAU", {
+              cache: "no-store",
+            });
+            const d2 = await r2.json();
+            q = typeof d2?.price === "number" && d2.price > 0 ? d2.price : null;
+          } catch {
+            q = null;
+          }
+        }
+
         if (!dead && q !== null) {
           baseRef.current = q;
           setTickPrice(q);
@@ -1570,6 +1590,23 @@ function useFinnhubPrices(assets: Asset[]) {
   useEffect(() => {
     const fetchAll = async (onlyUnlive = false) => {
       for (const asset of assets) {
+        // Ouro: fallback dedicado sem API key para evitar ficar preso em valor antigo
+        if (asset.id === "xauusd") {
+          if (onlyUnlive && liveAssetsRef.current.has(asset.id)) continue;
+          try {
+            const r = await fetch("https://api.gold-api.com/price/XAU", {
+              cache: "no-store",
+            });
+            const d = await r.json();
+            if (typeof d?.price === "number" && d.price > 0) {
+              update({ [asset.id]: d.price }, true);
+              continue;
+            }
+          } catch {
+            /* silent */
+          }
+        }
+
         if (!asset.finnhubSymbol) continue;
         if (onlyUnlive && liveAssetsRef.current.has(asset.id)) continue;
         try {
