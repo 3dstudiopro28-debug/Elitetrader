@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase-server";
+import {
+  createServerClient,
+  createUserClient,
+  hasServiceRole,
+} from "@/lib/supabase-server";
 import { userPresenceStore } from "@/lib/user-presence-store";
 
 function getAccessToken(req: NextRequest): string | null {
@@ -35,13 +39,24 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as { action?: string };
     const action = body.action ?? "ping";
+    const writeSb = hasServiceRole() ? createServerClient() : createUserClient(token);
 
     if (action === "offline") {
       userPresenceStore.markOffline(user.id);
+      // Persistir "offline" no DB para refletir no CRM mesmo entre instâncias.
+      await writeSb
+        .from("profiles")
+        .update({ updated_at: new Date(0).toISOString() })
+        .eq("id", user.id);
       return NextResponse.json({ success: true, status: "offline" });
     }
 
     userPresenceStore.ping(user.id, user.email ?? undefined);
+    // Persistir heartbeat online no DB.
+    await writeSb
+      .from("profiles")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", user.id);
     return NextResponse.json({ success: true, status: "online" });
   } catch {
     return NextResponse.json(
