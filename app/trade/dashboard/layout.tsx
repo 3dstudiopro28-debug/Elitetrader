@@ -37,6 +37,7 @@ export default function DashboardLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const presenceRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -311,6 +312,45 @@ export default function DashboardLayout({
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
+    };
+  }, [ready]);
+
+  // ── Presença online/offline para CRM admin ─────────────────────────────────
+  useEffect(() => {
+    if (!ready) return;
+
+    async function pingPresence(action: "ping" | "offline" = "ping") {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+
+        await fetch("/api/user/presence", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ action }),
+        });
+      } catch {
+        // silencioso
+      }
+    }
+
+    pingPresence("ping");
+    presenceRef.current = setInterval(() => pingPresence("ping"), 25_000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") pingPresence("ping");
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (presenceRef.current) clearInterval(presenceRef.current);
+      pingPresence("offline");
     };
   }, [ready]);
 

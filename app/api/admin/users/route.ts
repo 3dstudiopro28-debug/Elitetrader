@@ -17,6 +17,7 @@ import {
   AdminOverrideEntry,
 } from "@/lib/admin-override-store";
 import { requireAdmin } from "@/lib/admin-auth";
+import { userPresenceStore } from "@/lib/user-presence-store";
 
 // Normaliza row Supabase → formato CRMUser
 // Suporta dois schemas:
@@ -32,7 +33,8 @@ function normalizeUser(
   // A conta "principal" para leverage/currency/status deve priorizar a real
   const primaryAccount = realAccount ?? demoAccount ?? null;
 
-  // Suporte a ambos os schemas: first_name/last_name (novo) ou name (antigo)
+  // Suporte a ambos o
+  // s schemas: first_name/last_name (novo) ou name (antigo)
   const firstName =
     profile.first_name !== undefined
       ? (profile.first_name ?? "")
@@ -84,6 +86,8 @@ function normalizeUser(
     kycStatus: profile.kyc_status ?? "unverified",
     totalDeposited: primaryAccount?.total_deposited ?? 0,
     totalWithdrawn: primaryAccount?.total_withdrawn ?? 0,
+    presenceStatus: userPresenceStore.status(profile.id),
+    lastSeenAt: userPresenceStore.lastSeenAt(profile.id),
   };
 }
 
@@ -155,7 +159,21 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Fallback: userStore (local) ──────────────────────────────────────────
-  let users = userStore.getAll();
+  let users = userStore.getAll().map((u) => {
+    const localPresence = userPresenceStore.getByEmail(u.email);
+    if (localPresence) {
+      return {
+        ...u,
+        presenceStatus: userPresenceStore.status(localPresence.userId),
+        lastSeenAt: userPresenceStore.lastSeenAt(localPresence.userId),
+      };
+    }
+    return {
+      ...u,
+      presenceStatus: "offline",
+      lastSeenAt: null,
+    };
+  });
   if (search)
     users = users.filter(
       (u) =>
