@@ -1929,10 +1929,20 @@ function PricesTab() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
+  async function readJsonSafe(r: Response): Promise<Record<string, unknown>> {
+    const text = await r.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+
   // Carregar override actual ao montar
   useEffect(() => {
     apiFetch("/api/admin/prices")
-      .then((r) => r.json())
+      .then((r) => readJsonSafe(r))
       .then((j) => {
         const v = j.prices?.xauusd ?? null;
         setCurrentOverride(v);
@@ -1954,7 +1964,7 @@ function PricesTab() {
         method: "POST",
         body: JSON.stringify({ assetId: "xauusd", price }),
       });
-      const j = await r.json();
+      const j = await readJsonSafe(r);
       if (r.ok && j.success) {
         setCurrentOverride(price);
         setMsg({
@@ -1962,7 +1972,10 @@ function PricesTab() {
           ok: true,
         });
       } else {
-        setMsg({ text: j.error ?? "Erro ao aplicar", ok: false });
+        setMsg({
+          text: String(j.error ?? `Erro ao aplicar (HTTP ${r.status})`),
+          ok: false,
+        });
       }
     } catch {
       setMsg({ text: "Erro de ligação", ok: false });
@@ -1978,7 +1991,7 @@ function PricesTab() {
         method: "DELETE",
         body: JSON.stringify({ assetId: "xauusd" }),
       });
-      const j = await r.json();
+      const j = await readJsonSafe(r);
       if (r.ok && j.success) {
         setCurrentOverride(null);
         setInputValue("");
@@ -1987,7 +2000,10 @@ function PricesTab() {
           ok: true,
         });
       } else {
-        setMsg({ text: j.error ?? "Erro ao remover", ok: false });
+        setMsg({
+          text: String(j.error ?? `Erro ao remover (HTTP ${r.status})`),
+          ok: false,
+        });
       }
     } catch {
       setMsg({ text: "Erro de ligação", ok: false });
