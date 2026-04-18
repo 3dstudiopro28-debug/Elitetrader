@@ -174,6 +174,22 @@ function getEffectiveSpread(asset: Asset): number {
   return Math.max(asset.spread, minVisibleSpread);
 }
 
+function getBidAsk(asset: Asset, tickPrice: number, effectiveSpread: number) {
+  // Para ouro com override ativo, usar o preço definido pelo admin como centro
+  // e forçar uma diferença visível entre bid/ask.
+  if (asset.id === "xauusd" && priceStore.getAdminOverride("xauusd") !== null) {
+    const forcedSpread = Math.max(effectiveSpread, tickPrice * 0.0025); // ~0.25%
+    const half = forcedSpread / 2;
+    const bid = tickPrice - half;
+    const ask = tickPrice + half;
+    return { bid, ask };
+  }
+
+  const bid = tickPrice;
+  const ask = tickPrice + effectiveSpread;
+  return { bid, ask };
+}
+
 // ─── Assets ───────────────────────────────────────────────────────────────────
 const ASSETS: Asset[] = [
   {
@@ -825,6 +841,9 @@ function useTickPrice(
   useEffect(() => {
     if (finnhubSymbol !== "OANDA:XAU_USD") return;
 
+    // Se há override admin ativo, não sobrescrever o preço base com feed externo.
+    if (priceStore.getAdminOverride("xauusd") !== null) return;
+
     let dead = false;
     async function syncGoldQuote() {
       try {
@@ -925,8 +944,7 @@ function ChartModal({
     isLive,
     asset.finnhubSymbol,
   );
-  const bid = tickPrice;
-  const ask = tickPrice + effectiveSpread;
+  const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
   const displayPrice = tradeType === "buy" ? ask : bid;
   const amountNum = parseFloat(amount) || 100;
   const lotsNum = parseFloat(lots) || 0.01;
@@ -995,8 +1013,7 @@ function ChartModal({
       return;
     }
     // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
-    const bid = tickPrice;
-    const ask = tickPrice + effectiveSpread;
+    const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
     const execPrice = tradeType === "buy" ? ask : bid;
     const cs = getContractSize(asset);
     const lotsN =
@@ -1599,6 +1616,12 @@ function useFinnhubPrices(assets: Asset[]) {
   useEffect(() => {
     const fetchAll = async (onlyUnlive = false) => {
       for (const asset of assets) {
+        const adminOverride = priceStore.getAdminOverride(asset.id);
+        if (adminOverride !== null) {
+          update({ [asset.id]: adminOverride }, true);
+          continue;
+        }
+
         // Ouro: fallback dedicado sem API key para evitar ficar preso em valor antigo
         if (asset.id === "xauusd") {
           if (onlyUnlive && liveAssetsRef.current.has(asset.id)) continue;
@@ -1670,7 +1693,10 @@ function useFinnhubPrices(assets: Asset[]) {
           const patch: Record<string, number> = {};
           msg.data.forEach((tick: { s: string; p: number }) => {
             const asset = assets.find((a) => a.finnhubSymbol === tick.s);
-            if (asset && tick.p > 0) patch[asset.id] = tick.p;
+            if (!asset || tick.p <= 0) return;
+            // Quando há override admin, o feed externo não deve sobrescrever.
+            if (priceStore.getAdminOverride(asset.id) !== null) return;
+            patch[asset.id] = tick.p;
           });
           if (Object.keys(patch).length) update(patch, true); // isLive=true
         }
@@ -1757,8 +1783,7 @@ function TradePanel({
     isLive,
     asset.finnhubSymbol,
   );
-  const bid = tickPrice;
-  const ask = tickPrice + effectiveSpread;
+  const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
   const displayPrice = tradeType === "buy" ? ask : bid;
 
   const amountNum = parseFloat(amount) || 100;
@@ -1820,8 +1845,7 @@ function TradePanel({
       return;
     }
     // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
-    const bid = tickPrice;
-    const ask = tickPrice + effectiveSpread;
+    const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
     const execPrice = tradeType === "buy" ? ask : bid;
     const cs = getContractSize(asset);
     const lotsN =
