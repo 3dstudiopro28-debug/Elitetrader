@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ShieldAlert,
   Eye,
@@ -31,6 +31,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { adminStore } from "@/lib/admin-store";
+import { supabase } from "@/lib/supabase";
 import type { CRMUser, UserStatus, AccountMode } from "@/lib/user-store";
 import { userStore } from "@/lib/user-store";
 import { cn } from "@/lib/utils";
@@ -2100,6 +2101,10 @@ export default function AdminPage() {
   const [filterStatus, setFilterStatus] = useState<string>("");
   const [filterMode, setFilterMode] = useState<string>("");
   const [selectedUser, setSelectedUser] = useState<CRMUser | null>(null);
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
+  const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(
+    null,
+  );
 
   const refreshUsers = useCallback(async () => {
     setLoading(true);
@@ -2142,6 +2147,35 @@ export default function AdminPage() {
     }, 12_000);
     return () => clearInterval(id);
   }, [unlocked, refreshUsers]);
+
+  useEffect(() => {
+    if (!unlocked) return;
+
+    const channel = supabase.channel("crm-presence");
+
+    const updatePresence = () => {
+      const state = channel.presenceState();
+      const ids = new Set<string>();
+      for (const key of Object.keys(state)) ids.add(key);
+      setOnlineUserIds(ids);
+    };
+
+    channel
+      .on("presence", { event: "sync" }, updatePresence)
+      .on("presence", { event: "join" }, updatePresence)
+      .on("presence", { event: "leave" }, updatePresence)
+      .subscribe();
+
+    presenceChannelRef.current = channel;
+
+    return () => {
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current);
+        presenceChannelRef.current = null;
+      }
+      setOnlineUserIds(new Set());
+    };
+  }, [unlocked]);
 
   function handleUnlock(r: Role) {
     setRole(r);
@@ -2484,95 +2518,102 @@ export default function AdminPage() {
                         </td>
                       </tr>
                     )}
-                    {filtered.map((u) => (
-                      <tr
-                        key={u.id}
-                        className="hover:bg-muted/20 transition-colors cursor-pointer"
-                        onClick={() => setSelectedUser(u)}
-                      >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center text-accent font-bold text-xs shrink-0">
-                              {(u.firstName[0] ?? u.email[0]).toUpperCase()}
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-foreground leading-none">
-                                {u.firstName} {u.lastName}
-                              </div>
-                              <div className="text-xs text-muted-foreground mt-0.5">
-                                {u.email}
-                              </div>
-                              <div className="mt-1 flex items-center gap-1.5">
-                                <span
-                                  className={cn(
-                                    "inline-block h-1.5 w-1.5 rounded-full",
-                                    u.presenceStatus === "online"
-                                      ? "bg-green-400"
-                                      : "bg-zinc-500",
-                                  )}
-                                />
-                                <span
-                                  className={cn(
-                                    "text-[10px] font-medium uppercase tracking-wide",
-                                    u.presenceStatus === "online"
-                                      ? "text-green-400"
-                                      : "text-zinc-400",
-                                  )}
-                                >
-                                  {u.presenceStatus === "online"
-                                    ? "Online"
-                                    : "Offline"}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">
-                          {u.country || "—"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              "px-2 py-0.5 rounded text-xs font-semibold uppercase",
-                              u.mode === "demo"
-                                ? "bg-blue-500/10 text-blue-400"
-                                : "bg-green-500/10 text-green-400",
-                            )}
+                    {filtered.map((u) =>
+                      // Presença realtime tem prioridade sobre fallback da API.
+                      // Isso evita falsos "offline" quando o store em memória do servidor diverge.
+                      (() => {
+                        const isOnline =
+                          onlineUserIds.has(u.id) ||
+                          u.presenceStatus === "online";
+                        return (
+                          <tr
+                            key={u.id}
+                            className="hover:bg-muted/20 transition-colors cursor-pointer"
+                            onClick={() => setSelectedUser(u)}
                           >
-                            {u.mode}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              "px-2 py-0.5 rounded-full text-xs font-medium border",
-                              STATUS_COLOR[u.status],
-                            )}
-                          >
-                            {STATUS_LABEL[u.status]}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm font-medium text-foreground">
-                          {"$" + fmt(u.balance)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              "text-xs font-medium",
-                              KYC_COLOR[u.kycStatus],
-                            )}
-                          >
-                            {KYC_LABEL[u.kycStatus]}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">
-                          {fmtDate(u.createdAt)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                        </td>
-                      </tr>
-                    ))}
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center text-accent font-bold text-xs shrink-0">
+                                  {(u.firstName[0] ?? u.email[0]).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="text-sm font-medium text-foreground leading-none">
+                                    {u.firstName} {u.lastName}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground mt-0.5">
+                                    {u.email}
+                                  </div>
+                                  <div className="mt-1 flex items-center gap-1.5">
+                                    <span
+                                      className={cn(
+                                        "inline-block h-1.5 w-1.5 rounded-full",
+                                        isOnline
+                                          ? "bg-green-400"
+                                          : "bg-zinc-500",
+                                      )}
+                                    />
+                                    <span
+                                      className={cn(
+                                        "text-[10px] font-medium uppercase tracking-wide",
+                                        isOnline
+                                          ? "text-green-400"
+                                          : "text-zinc-400",
+                                      )}
+                                    >
+                                      {isOnline ? "Online" : "Offline"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-muted-foreground">
+                              {u.country || "—"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={cn(
+                                  "px-2 py-0.5 rounded text-xs font-semibold uppercase",
+                                  u.mode === "demo"
+                                    ? "bg-blue-500/10 text-blue-400"
+                                    : "bg-green-500/10 text-green-400",
+                                )}
+                              >
+                                {u.mode}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={cn(
+                                  "px-2 py-0.5 rounded-full text-xs font-medium border",
+                                  STATUS_COLOR[u.status],
+                                )}
+                              >
+                                {STATUS_LABEL[u.status]}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm font-medium text-foreground">
+                              {"$" + fmt(u.balance)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={cn(
+                                  "text-xs font-medium",
+                                  KYC_COLOR[u.kycStatus],
+                                )}
+                              >
+                                {KYC_LABEL[u.kycStatus]}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground">
+                              {fmtDate(u.createdAt)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                            </td>
+                          </tr>
+                        );
+                      })(),
+                    )}
                   </tbody>
                 </table>
               </div>

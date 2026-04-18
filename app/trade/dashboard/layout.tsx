@@ -38,6 +38,9 @@ export default function DashboardLayout({
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const presenceRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const realtimePresenceRef = useRef<ReturnType<
+    typeof supabase.channel
+  > | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -351,6 +354,41 @@ export default function DashboardLayout({
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (presenceRef.current) clearInterval(presenceRef.current);
       pingPresence("offline");
+    };
+  }, [ready]);
+
+  // ── Presença em tempo real (Supabase Realtime Presence) ───────────────────
+  useEffect(() => {
+    if (!ready) return;
+
+    let cancelled = false;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user || cancelled) return;
+
+      const channel = supabase.channel("crm-presence", {
+        config: { presence: { key: user.id } },
+      });
+
+      channel.subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({
+            userId: user.id,
+            email: user.email ?? "",
+            ts: Date.now(),
+          });
+        }
+      });
+
+      realtimePresenceRef.current = channel;
+    });
+
+    return () => {
+      cancelled = true;
+      if (realtimePresenceRef.current) {
+        supabase.removeChannel(realtimePresenceRef.current);
+        realtimePresenceRef.current = null;
+      }
     };
   }, [ready]);
 
