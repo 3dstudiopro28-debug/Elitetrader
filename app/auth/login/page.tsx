@@ -19,6 +19,31 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
+  const [resetInfo, setResetInfo] = useState("");
+
+  function maskEmail(value: string): string {
+    const parts = value.split("@");
+    if (parts.length !== 2) return value;
+    const [name, domain] = parts;
+    if (name.length <= 2) return `${name[0] ?? "*"}*@${domain}`;
+    return `${name.slice(0, 2)}***@${domain}`;
+  }
+
+  function handleForgotPassword(e: React.MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    setError("");
+
+    if (!email.trim()) {
+      setResetInfo("");
+      setError("Digite o seu email para recuperar a senha.");
+      return;
+    }
+
+    // Simulação de envio de mensagem de recuperação.
+    setResetInfo(
+      `Mensagem enviada para ${maskEmail(email.trim())}. Verifique sua caixa de entrada.`,
+    );
+  }
 
   async function handleGoogleLogin() {
     setGoogleLoading(true);
@@ -360,6 +385,12 @@ export default function LoginPage() {
               </p>
             )}
 
+            {resetInfo && (
+              <p className="text-sm text-green-400 text-center bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
+                {resetInfo}
+              </p>
+            )}
+
             <Button
               type="submit"
               disabled={loading}
@@ -377,12 +408,13 @@ export default function LoginPage() {
 
           {/* Forgot password */}
           <div className="mt-6 text-center">
-            <Link
-              href="#"
+            <button
+              type="button"
+              onClick={handleForgotPassword}
               className="text-sm text-muted-foreground hover:text-accent transition-colors"
             >
               Esqueceu a senha?
-            </Link>
+            </button>
           </div>
         </div>
       </div>
