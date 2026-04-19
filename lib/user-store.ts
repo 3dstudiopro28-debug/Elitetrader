@@ -257,8 +257,12 @@ export const userStore = {
   adjustBalance(id: string, delta: number): CRMUser | null {
     const user = this.getById(id);
     if (!user) return null;
-    const newBalance = Math.max(0, (user.balance ?? 0) + delta);
-    return this.update(id, { balance: newBalance });
+    // Atualiza tanto o balance (caso o modo seja real) quanto o realBalance
+    const isReal = user.mode === "real";
+    const newRealBalance = Math.max(0, (user.realBalance ?? 0) + delta);
+    const patch: Partial<CRMUser> = { realBalance: newRealBalance };
+    if (isReal) patch.balance = newRealBalance;
+    return this.update(id, patch);
   },
 
   /** Stats for admin dashboard */
