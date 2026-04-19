@@ -390,7 +390,11 @@ export default function AccountPage() {
       if (!res.ok || !json.success)
         throw new Error(json.error ?? "Erro ao eliminar");
       // Sign out and clear local data
-      localStorage.clear();
+      localStorage.removeItem("sb-access-token");
+      localStorage.removeItem("sb-refresh-token");
+      localStorage.removeItem("sb-expires-at");
+      localStorage.removeItem("sb-provider-token");
+      localStorage.removeItem("sb-provider-refresh-token");
       await supabase.auth.signOut();
       window.location.href = "/";
     } catch (err) {

@@ -27,11 +27,8 @@ import {
 import { useState, useEffect, useCallback } from "react";
 import { useT } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
-import {
-  accountStore,
-  type AccountMode,
-  DEMO_START_BALANCE,
-} from "@/lib/account-store";
+import { type AccountMode } from "@/lib/user-store";
+import { userStore } from "@/lib/user-store";
 import { profileStore } from "@/lib/profile-store";
 import { tradeStore } from "@/lib/trade-store";
 
@@ -68,9 +65,11 @@ export function DashboardSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
-  const [mode, setModeState] = useState<AccountMode>(() =>
-    accountStore.getMode(),
-  );
+  // Modo da conta (demo/real) salvo no localStorage
+  const [mode, setModeState] = useState<AccountMode>(() => {
+    if (typeof window === "undefined") return "real";
+    return (localStorage.getItem("crm-mode") as AccountMode) || "real";
+  });
   const [copied, setCopied] = useState(false);
   const [demoId, setDemoId] = useState("ET-00001");
   const [realId, setRealId] = useState("RLT-00001");
@@ -155,66 +154,25 @@ export function DashboardSidebar({
   const STEPS_TOTAL = 4;
   const STEPS_DONE = dbBal !== null && dbBal > 0 ? 4 : userName ? 2 : 1;
 
+  // Atualiza modo da conta ao mudar no localStorage
   const refresh = useCallback(() => {
-    setModeState(accountStore.getMode());
+    if (typeof window === "undefined") return;
+    setModeState((localStorage.getItem("crm-mode") as AccountMode) || "real");
   }, []);
 
   useEffect(() => {
     setDemoId(getDemoId());
     setRealId(getRealId());
     refresh();
-    const u1 = accountStore.subscribe(refresh);
-    const u2 = tradeStore.subscribe(refresh);
-
-    // Subscrever ao profileStore para actualizações em tempo real
-    const u3 = profileStore.subscribe(() => {
-      const n = profileStore.getName();
-      if (n) setUserName(n);
-    });
-
-    // Buscar nome do utilizador
-    const cached = profileStore.getName();
-    if (cached) {
-      setUserName(cached);
-    } else {
-      supabase.auth
-        .getSession()
-        .then(({ data: { session } }) => {
-          if (!session?.user) return;
-          const meta = session.user.user_metadata;
-          const first = meta?.first_name ?? meta?.given_name ?? "";
-          const last = meta?.last_name ?? meta?.family_name ?? "";
-          if (first || last) {
-            const n = [first, last].filter(Boolean).join(" ");
-            profileStore.setName(n);
-            setUserName(n);
-            return;
-          }
-          // fallback: buscar da tabela profiles
-          supabase
-            .from("profiles")
-            .select("first_name, last_name")
-            .eq("id", session.user.id)
-            .single()
-            .then(({ data }) => {
-              if (data) {
-                const name = [data.first_name, data.last_name]
-                  .filter(Boolean)
-                  .join(" ");
-                if (name) {
-                  profileStore.setName(name);
-                  setUserName(name);
-                }
-              }
-            });
-        })
-        .catch(() => {});
+    // Buscar nome do usuário do CRM local
+    if (typeof window !== "undefined") {
+      const users = userStore.getAll();
+      const user = users.length > 0 ? users[0] : null;
+      if (user) setUserName(`${user.firstName} ${user.lastName}`);
     }
-
+    window.addEventListener("storage", refresh);
     return () => {
-      u1();
-      u2();
-      u3();
+      window.removeEventListener("storage", refresh);
     };
   }, [refresh]);
 
@@ -226,12 +184,20 @@ export function DashboardSidebar({
 
   function toggleMode() {
     const next: AccountMode = mode === "demo" ? "real" : "demo";
-    accountStore.setMode(next);
-    setModeState(next);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("crm-mode", next);
+      setModeState(next);
+    }
   }
 
   const handleLogout = useCallback(async () => {
-    if (typeof window !== "undefined") localStorage.clear();
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("sb-access-token");
+      localStorage.removeItem("sb-refresh-token");
+      localStorage.removeItem("sb-expires-at");
+      localStorage.removeItem("sb-provider-token");
+      localStorage.removeItem("sb-provider-refresh-token");
+    }
     try {
       await supabase.auth.signOut();
     } catch {
@@ -247,20 +213,13 @@ export function DashboardSidebar({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  // Balance display — usa saldo do DB (separado por modo) + PnL realizado local
-  // Modo real: apenas trades do utilizador (não adjustment) afectam o saldo
+  // Saldo: sempre do CRM local (userStore)
   const balance = (() => {
-    const closed = tradeStore.getClosed();
-    const realized = closed
-      .filter((p) => p.closeReason !== "adjustment")
-      .reduce((s, p) => s + p.pnl, 0);
-    const dbBal = accountStore.getDBBalance(mode);
-    if (mode === "real") {
-      const epoch = accountStore.getBalanceEpoch();
-      return (dbBal ?? 0) + (realized - epoch);
-    }
-    // Conta demo: parte de $100k se não há dado do DB
-    return (dbBal ?? DEMO_START_BALANCE) + realized;
+    if (typeof window === "undefined") return 0;
+    const users = userStore.getAll();
+    const user = users.length > 0 ? users[0] : null;
+    if (!user) return 0;
+    return mode === "real" ? (user.realBalance ?? 0) : (user.demoBalance ?? 0);
   })();
 
   const isDemo = mode === "demo";
