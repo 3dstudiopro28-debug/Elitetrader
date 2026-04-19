@@ -75,10 +75,9 @@ function save(users: CRMUser[]): void {
 function seedIfEmpty(): void {
   if (typeof window === "undefined") return;
   const existing = load();
-  if (existing.length > 0) return;
-
-  const now = new Date().toISOString();
-  const seed: CRMUser[] = [
+  // Só aplica seed se não houver NENHUM usuário salvo
+  if (existing && existing.length > 0) return;
+  save([
     {
       id: genId(),
       email: "joao.silva@email.com",
@@ -151,8 +150,7 @@ function seedIfEmpty(): void {
       totalDeposited: 0,
       totalWithdrawn: 0,
     },
-  ];
-  save(seed);
+  ]);
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
