@@ -787,7 +787,7 @@ function TradingViewChart({
   );
 }
 
-// ─── Micro-tick: faz bid/ask flutuar visivelmente em torno do preço real ────
+// ─── Micro-tick: faz bid/ask flutuar de forma mais estável ─────────────────
 // O preço de execução (trade) não é afectado — usa sempre o real `price` prop.
 function useTickPrice(
   basePrice: number,
@@ -811,7 +811,7 @@ function useTickPrice(
   }, [basePrice]);
 
   useEffect(() => {
-    // Flutua até ±90% do spread em cada tick (~50-90ms) para resposta super fluida
+    // Flutua até ±12% do spread em cada tick (~700-1200ms) para leitura ainda mais estável
     // Quando mercado fechado (isLive=false) mostra o preço base fixo
     let id: ReturnType<typeof setTimeout>;
     const schedule = () => {
@@ -820,7 +820,7 @@ function useTickPrice(
           if (isWeekend()) {
             setTickPrice(baseRef.current);
           } else if (liveRef.current) {
-            const maxDelta = spread * 0.9;
+            const maxDelta = spread * 0.12;
             setTickPrice(
               baseRef.current + (Math.random() - 0.5) * 2 * maxDelta,
             );
@@ -829,7 +829,7 @@ function useTickPrice(
           }
           schedule();
         },
-        50 + Math.random() * 40,
+        700 + Math.random() * 500,
       );
     };
     schedule();
@@ -888,7 +888,7 @@ function useTickPrice(
     }
 
     syncGoldQuote();
-    const id = setInterval(syncGoldQuote, 1_200);
+    const id = setInterval(syncGoldQuote, 4_000);
     return () => {
       dead = true;
       clearInterval(id);
@@ -1726,7 +1726,7 @@ function useFinnhubPrices(assets: Asset[]) {
       const patch: Record<string, number> = {};
       assets.forEach((a) => {
         if (!a.finnhubSymbol) {
-          const vol = a.basePrice * 0.0012;
+          const vol = a.basePrice * 0.0005;
           const delta = (Math.random() - 0.5) * vol;
           // Usa pricesRef (não setState updater) — evita chamar priceStore.set dentro de render
           patch[a.id] = Math.max(
@@ -1736,7 +1736,7 @@ function useFinnhubPrices(assets: Asset[]) {
         }
       });
       if (Object.keys(patch).length) update(patch);
-    }, 250);
+    }, 900);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [update]);
@@ -2402,7 +2402,7 @@ function AssetsPageInner() {
 
   const { prices, liveAssets } = useFinnhubPrices(ASSETS);
 
-  // ── Micro-tick para a tabela (±90% do spread, 50-90ms) ───────────────────
+  // ── Micro-tick para a tabela (±15% do spread, 800-1500ms) ────────────────
   const [tickPrices, setTickPrices] = useState<Record<string, number>>(() =>
     Object.fromEntries(ASSETS.map((a) => [a.id, prices[a.id] ?? a.basePrice])),
   );
@@ -2434,7 +2434,7 @@ function AssetsPageInner() {
                 isMarketDay() ||
                 liveAssetsRef.current.has(a.id);
               if (isLive) {
-                const maxDelta = a.spread * 0.9;
+                const maxDelta = a.spread * 0.15;
                 next[a.id] = base + (Math.random() - 0.5) * 2 * maxDelta;
               } else {
                 next[a.id] = base; // estático quando fechado
@@ -2444,7 +2444,7 @@ function AssetsPageInner() {
           });
           schedule();
         },
-        50 + Math.random() * 40,
+        800 + Math.random() * 700,
       );
     };
     schedule();
