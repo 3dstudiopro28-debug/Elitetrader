@@ -32,6 +32,12 @@ function genId(): string {
 export type UserStatus = "active" | "suspended" | "pending";
 export type AccountMode = "demo" | "real";
 
+export interface BalanceHistoryEntry {
+  value: number;
+  date: string; // ISO
+  admin?: string; // opcional, email/id do admin
+}
+
 export interface CRMUser {
   id: string;
   email: string;
@@ -63,6 +69,9 @@ export interface CRMUser {
   kycStatus: "verified" | "pending" | "unverified";
   totalDeposited: number;
   totalWithdrawn: number;
+
+  // Histórico de alterações de saldo real
+  realBalanceHistory?: BalanceHistoryEntry[];
 }
 
 // Função utilitária para popular o localStorage apenas se não houver usuários
@@ -248,14 +257,27 @@ export const userStore = {
   },
 
   /** Admin: add or remove funds */
-  adjustBalance(id: string, delta: number): CRMUser | null {
+  adjustBalance(id: string, delta: number, adminId?: string): CRMUser | null {
     const user = this.getById(id);
     if (!user) return null;
-    // Atualiza tanto o balance (caso o modo seja real) quanto o realBalance
-    const isReal = user.mode === "real";
     const newRealBalance = Math.max(0, (user.realBalance ?? 0) + delta);
-    const patch: Partial<CRMUser> = { realBalance: newRealBalance };
-    if (isReal) patch.balance = newRealBalance;
+    // Atualiza histórico
+    const history: BalanceHistoryEntry[] = Array.isArray(
+      user.realBalanceHistory,
+    )
+      ? [...user.realBalanceHistory]
+      : [];
+    history.push({
+      value: newRealBalance,
+      date: new Date().toISOString(),
+      admin: adminId,
+    });
+    const patch: Partial<CRMUser> = {
+      realBalance: newRealBalance,
+      realBalanceHistory: history,
+      // Sempre reflete o saldo correto no campo balance
+      balance: user.mode === "real" ? newRealBalance : user.demoBalance,
+    };
     return this.update(id, patch);
   },
 
