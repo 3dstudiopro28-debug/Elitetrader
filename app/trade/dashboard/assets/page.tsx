@@ -103,17 +103,16 @@ function isMarketDay(): boolean {
   return !isWeekend();
 }
 
-// ─── Util: calcular saldo actual ─────────────────────────────────────────────
-function getCurrentBalance(): number {
-  const mode = accountStore.getMode();
-  const closed = tradeStore.getClosed();
-  const realized = closed.reduce((s, p) => s + p.pnl, 0);
-  const dbBal = accountStore.getDBBalance(mode);
-  if (mode === "real") {
-    const epoch = accountStore.getBalanceEpoch();
-    return (dbBal ?? 0) + (realized - epoch);
-  }
-  return (dbBal ?? DEMO_START_BALANCE) + realized;
+// ─── Util: quanto ainda pode investir agora ─────────────────────────────────
+// Usa margem livre em vez de saldo bruto para não permitir ordens quando já
+// há margem comprometida por posições abertas.
+function getAvailableToInvest(): number {
+  const stats = accountStore.getStats(
+    tradeStore.getOpen(),
+    tradeStore.getClosed(),
+    priceStore.get(),
+  );
+  return Math.max(0, stats.freeMargin);
 }
 
 const FINNHUB_TOKEN = "KSA1gzO1nFSBTe4hKfw0KJvJQhhx_E_e";
@@ -1025,13 +1024,13 @@ function ChartModal({
         ? ((parseFloat(lots) || 0.01) * cs * execPrice) / selectedLeverage
         : parseFloat(amount) || 100;
     // ── Verificação de saldo ──────────────────────────────────────────────────
-    const bal = getCurrentBalance();
-    if (amountN > bal) {
-      setToast(`❌ Saldo insuficiente ($${bal.toFixed(2)})`);
+    const available = getAvailableToInvest();
+    if (amountN > available) {
+      setToast(`❌ Saldo insuficiente ($${available.toFixed(2)})`);
       notificationStore.add(
         "info",
         "Saldo insuficiente",
-        `Precisa de $${amountN.toFixed(2)} mas tem $${bal.toFixed(2)} disponíveis.`,
+        `Precisa de $${amountN.toFixed(2)} mas tem $${available.toFixed(2)} disponíveis para investir.`,
       );
       setTimeout(() => setToast(null), 2500);
       return;
@@ -1857,13 +1856,13 @@ function TradePanel({
         ? ((parseFloat(lots) || 0.01) * cs * execPrice) / selectedLeverage
         : parseFloat(amount) || 100;
     // ── Verificação de saldo ──────────────────────────────────────────────────
-    const bal = getCurrentBalance();
-    if (amountN > bal) {
-      setToast(`❌ Saldo insuficiente ($${bal.toFixed(2)})`);
+    const available = getAvailableToInvest();
+    if (amountN > available) {
+      setToast(`❌ Saldo insuficiente ($${available.toFixed(2)})`);
       notificationStore.add(
         "info",
         "Saldo insuficiente",
-        `Precisa de $${amountN.toFixed(2)} mas tem $${bal.toFixed(2)} disponíveis.`,
+        `Precisa de $${amountN.toFixed(2)} mas tem $${available.toFixed(2)} disponíveis para investir.`,
       );
       setTimeout(() => setToast(null), 2500);
       return;
