@@ -291,6 +291,9 @@ function UserDrawer({
   isSuperAdmin: boolean;
 }) {
   const [form, setForm] = useState<CRMUser>({ ...user });
+  useEffect(() => {
+    setForm({ ...user });
+  }, [user]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -514,8 +517,9 @@ function UserDrawer({
         const demoAcc = allAccounts.find((a) => a.mode === "demo");
         const anyAcc = allAccounts[0];
         const memOv = d._memOverride ?? null;
-        // NUNCA usar conta demo como fallback do saldo real — usa 0 se não existir conta real
-        const realBal = realAcc?.balance ?? memOv?.balance ?? 0;
+        // Se a resposta vier sem mode no schema antigo, usar a conta disponível.
+        const realBal =
+          realAcc?.balance ?? anyAcc?.balance ?? memOv?.balance ?? 0;
         setStatsData({
           balance: realBal,
           demoBalance: demoAcc?.balance ?? 100_000,
