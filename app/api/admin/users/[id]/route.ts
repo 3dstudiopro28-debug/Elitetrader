@@ -180,7 +180,7 @@ export async function PATCH(
                 balance: balanceToSet,
                 ...sharedFields,
               },
-              { onConflict: "user_id" },
+              { onConflict: "user_id,mode" },
             );
             if (upsertErr)
               warnings.push("Conta (upsert): " + upsertErr.message);
