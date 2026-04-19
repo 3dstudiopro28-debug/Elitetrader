@@ -515,21 +515,18 @@ function UserDrawer({
             : [];
         const realAcc = allAccounts.find((a) => a.mode === "real");
         const demoAcc = allAccounts.find((a) => a.mode === "demo");
-        const anyAcc = allAccounts[0];
         const memOv = d._memOverride ?? null;
-        // Se a resposta vier sem mode no schema antigo, usar a conta disponível.
-        const realBal =
-          realAcc?.balance ?? anyAcc?.balance ?? memOv?.balance ?? 0;
+        const realBal = realAcc?.balance ?? memOv?.balance ?? 0;
         setStatsData({
           balance: realBal,
           demoBalance: demoAcc?.balance ?? 100_000,
           openPositions: d.open_positions ?? 0,
           closedPositions: d.closed_positions ?? 0,
           totalPnl: d.total_pnl ?? 0,
-          totalDeposited: anyAcc?.total_deposited ?? form.totalDeposited ?? 0,
-          totalWithdrawn: anyAcc?.total_withdrawn ?? form.totalWithdrawn ?? 0,
-          leverage: anyAcc?.leverage ?? form.leverage ?? 200,
-          currency: anyAcc?.currency ?? form.currency ?? "USD",
+          totalDeposited: realAcc?.total_deposited ?? form.totalDeposited ?? 0,
+          totalWithdrawn: realAcc?.total_withdrawn ?? form.totalWithdrawn ?? 0,
+          leverage: realAcc?.leverage ?? form.leverage ?? 200,
+          currency: realAcc?.currency ?? form.currency ?? "USD",
           equityOverride: memOv?.equityOverride ?? form.equityOverride ?? null,
           marginLevelOverride:
             memOv?.marginLevelOverride ?? form.marginLevelOverride ?? null,

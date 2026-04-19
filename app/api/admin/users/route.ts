@@ -37,11 +37,10 @@ function normalizeUser(
   profile: any,
   demoAccount: any,
   realAccount: any,
-  anyAccount: any,
   override: AdminOverrideEntry | null,
 ) {
   // A conta "principal" para leverage/currency/status deve priorizar a real
-  const primaryAccount = realAccount ?? anyAccount ?? demoAccount ?? null;
+  const primaryAccount = realAccount ?? null;
 
   // Suporte a ambos o
   // s schemas: first_name/last_name (novo) ou name (antigo)
@@ -68,10 +67,8 @@ function normalizeUser(
 
   // Saldo demo: sempre $100k (conta de treino)
   const computedDemo = demoAccount?.balance ?? 100_000;
-  // Saldo real: lê da conta real; se schema vier sem mode, usa a primeira conta
-  // disponível antes do fallback de override em memória.
-  const computedReal =
-    realAccount?.balance ?? anyAccount?.balance ?? override?.balance ?? 0;
+  // Saldo real: lê da conta real com fallback de override em memória.
+  const computedReal = realAccount?.balance ?? override?.balance ?? 0;
   const dbOnline = isRecentlyActive(profile.updated_at);
   const memOnline = userPresenceStore.status(profile.id) === "online";
   const effectiveOnline = dbOnline || memOnline;
@@ -141,10 +138,9 @@ export async function GET(req: NextRequest) {
       const demoAcc = accountsArr.find((a: any) => a.mode === "demo") ?? null;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const realAcc = accountsArr.find((a: any) => a.mode === "real") ?? null;
-      const anyAcc = accountsArr[0] ?? null;
       // Overrides vêm do store em memória (não do DB)
       const override = adminOverrideStore.get(p.id);
-      return normalizeUser(p, demoAcc, realAcc, anyAcc, override);
+      return normalizeUser(p, demoAcc, realAcc, override);
     });
 
     if (search)
