@@ -1,3 +1,22 @@
+// Utilitários mínimos para funcionamento local
+function load(): CRMUser[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem("crm-users");
+    return raw ? (JSON.parse(raw) as CRMUser[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function save(users: CRMUser[]): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("crm-users", JSON.stringify(users));
+}
+
+function genId(): string {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 /**
  * lib/user-store.ts
  *
@@ -39,39 +58,14 @@ export interface CRMUser {
   // Admin notes
   adminNotes: string;
 
-  // Meta
+  // Campos adicionais usados no seed e lógica
   lastLogin: string | null;
-  presenceStatus?: "online" | "offline";
-  lastSeenAt?: string | null;
-  kycStatus: "unverified" | "pending" | "verified";
+  kycStatus: "verified" | "pending" | "unverified";
   totalDeposited: number;
   totalWithdrawn: number;
 }
 
-const STORE_KEY = "et_crm_users";
-
-function genId(): string {
-  return (
-    "usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
-  );
-}
-
-function load(): CRMUser[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    return raw ? (JSON.parse(raw) as CRMUser[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function save(users: CRMUser[]): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORE_KEY, JSON.stringify(users));
-}
-
-// ─── Seed demo users if list is empty ─────────────────────────────────────────
+// Função utilitária para popular o localStorage apenas se não houver usuários
 function seedIfEmpty(): void {
   if (typeof window === "undefined") return;
   const existing = load();
@@ -164,13 +158,15 @@ export const userStore = {
 
   /** Find user by id */
   getById(id: string): CRMUser | null {
-    return load().find((u) => u.id === id) ?? null;
+    return load().find((u: CRMUser) => u.id === id) ?? null;
   },
 
   /** Find user by email */
   getByEmail(email: string): CRMUser | null {
     return (
-      load().find((u) => u.email.toLowerCase() === email.toLowerCase()) ?? null
+      load().find(
+        (u: CRMUser) => u.email.toLowerCase() === email.toLowerCase(),
+      ) ?? null
     );
   },
 
@@ -215,7 +211,7 @@ export const userStore = {
   /** Update any fields of a user (admin use) */
   update(id: string, patch: Partial<CRMUser>): CRMUser | null {
     const users = load();
-    const idx = users.findIndex((u) => u.id === id);
+    const idx = users.findIndex((u: CRMUser) => u.id === id);
     if (idx === -1) return null;
     users[idx] = { ...users[idx], ...patch };
     save(users);
@@ -225,7 +221,7 @@ export const userStore = {
   /** Delete a user */
   delete(id: string): boolean {
     const users = load();
-    const filtered = users.filter((u) => u.id !== id);
+    const filtered = users.filter((u: CRMUser) => u.id !== id);
     if (filtered.length === users.length) return false;
     save(filtered);
     return true;
@@ -268,12 +264,15 @@ export const userStore = {
     const users = load();
     return {
       total: users.length,
-      active: users.filter((u) => u.status === "active").length,
-      suspended: users.filter((u) => u.status === "suspended").length,
-      pending: users.filter((u) => u.status === "pending").length,
-      demo: users.filter((u) => u.mode === "demo").length,
-      real: users.filter((u) => u.mode === "real").length,
-      totalDeposited: users.reduce((s, u) => s + u.totalDeposited, 0),
+      active: users.filter((u: CRMUser) => u.status === "active").length,
+      suspended: users.filter((u: CRMUser) => u.status === "suspended").length,
+      pending: users.filter((u: CRMUser) => u.status === "pending").length,
+      demo: users.filter((u: CRMUser) => u.mode === "demo").length,
+      real: users.filter((u: CRMUser) => u.mode === "real").length,
+      totalDeposited: users.reduce(
+        (s: number, u: CRMUser) => s + u.totalDeposited,
+        0,
+      ),
     };
   },
 };
