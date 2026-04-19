@@ -518,10 +518,7 @@ function UserDrawer({
           const mode = String(a.mode ?? "").toLowerCase();
           return mode && mode !== "demo";
         });
-        const realAcc =
-          explicitReal ??
-          nonDemoAcc ??
-          (allAccounts.length === 1 ? allAccounts[0] : undefined);
+        const realAcc = explicitReal ?? nonDemoAcc ?? undefined;
         const demoAcc = allAccounts.find((a) => a.mode === "demo");
         const memOv = d._memOverride ?? null;
         const realBal = realAcc?.balance ?? memOv?.balance ?? 0;

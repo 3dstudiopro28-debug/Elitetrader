@@ -32,21 +32,17 @@ function isRecentlyActive(value: unknown): boolean {
 function pickRealAccount(accounts: any[]): any | null {
   if (!Array.isArray(accounts) || accounts.length === 0) return null;
   // Prioridade: marcador explícito de conta real
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const explicitReal = accounts.find((a: any) => a?.mode === "real");
   if (explicitReal) return explicitReal;
 
   // Compatibilidade legado: qualquer conta não-demo
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nonDemo = accounts.find((a: any) => {
     const mode = String(a?.mode ?? "").toLowerCase();
     return mode && mode !== "demo";
   });
   if (nonDemo) return nonDemo;
 
-  // Se só houver uma conta e sem mode utilizável, tratamos como real.
-  // Isto evita saldo 0 em bases antigas, sem usar dados da demo quando há separação clara.
-  if (accounts.length === 1) return accounts[0];
+  // Não faz fallback para conta única! Se não houver real, retorna null.
   return null;
 }
 
