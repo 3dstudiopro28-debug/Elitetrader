@@ -21,6 +21,14 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [resetInfo, setResetInfo] = useState("");
 
+  function maskEmail(value: string): string {
+    const parts = value.split("@");
+    if (parts.length !== 2) return value;
+    const [name, domain] = parts;
+    if (name.length <= 2) return `${name[0] ?? "*"}*@${domain}`;
+    return `${name.slice(0, 2)}***@${domain}`;
+  }
+
   function handleForgotPassword(e: React.MouseEvent<HTMLButtonElement>) {
     e.preventDefault();
     setError("");
@@ -31,7 +39,10 @@ export default function LoginPage() {
       return;
     }
 
-    setResetInfo(`redefinição de senha enviada pelo seu email ${email.trim()}`);
+    // Simulação de envio de mensagem de recuperação.
+    setResetInfo(
+      `Mensagem enviada para ${maskEmail(email.trim())}. Verifique sua caixa de entrada.`,
+    );
   }
 
   async function handleGoogleLogin() {

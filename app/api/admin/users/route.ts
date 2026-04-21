@@ -17,16 +17,6 @@ import {
   AdminOverrideEntry,
 } from "@/lib/admin-override-store";
 import { requireAdmin } from "@/lib/admin-auth";
-import { userPresenceStore } from "@/lib/user-presence-store";
-
-const ONLINE_WINDOW_MS = 2 * 60 * 1000;
-
-function isRecentlyActive(value: unknown): boolean {
-  if (!value) return false;
-  const ms = new Date(String(value)).getTime();
-  if (!Number.isFinite(ms)) return false;
-  return Date.now() - ms <= ONLINE_WINDOW_MS;
-}
 
 // Normaliza row Supabase → formato CRMUser
 // Suporta dois schemas:
@@ -42,8 +32,7 @@ function normalizeUser(
   // A conta "principal" para leverage/currency/status deve priorizar a real
   const primaryAccount = realAccount ?? demoAccount ?? null;
 
-  // Suporte a ambos o
-  // s schemas: first_name/last_name (novo) ou name (antigo)
+  // Suporte a ambos os schemas: first_name/last_name (novo) ou name (antigo)
   const firstName =
     profile.first_name !== undefined
       ? (profile.first_name ?? "")
@@ -69,9 +58,6 @@ function normalizeUser(
   const computedDemo = demoAccount?.balance ?? 100_000;
   // Saldo real: lê directamente da conta real, com fallback para override em memória
   const computedReal = realAccount?.balance ?? override?.balance ?? 0;
-  const dbOnline = isRecentlyActive(profile.updated_at);
-  const memOnline = userPresenceStore.status(profile.id) === "online";
-  const effectiveOnline = dbOnline || memOnline;
 
   return {
     id: profile.id,
@@ -98,9 +84,6 @@ function normalizeUser(
     kycStatus: profile.kyc_status ?? "unverified",
     totalDeposited: primaryAccount?.total_deposited ?? 0,
     totalWithdrawn: primaryAccount?.total_withdrawn ?? 0,
-    presenceStatus: effectiveOnline ? "online" : "offline",
-    lastSeenAt:
-      profile.updated_at ?? userPresenceStore.lastSeenAt(profile.id) ?? null,
   };
 }
 
@@ -172,21 +155,7 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Fallback: userStore (local) ──────────────────────────────────────────
-  let users = userStore.getAll().map((u) => {
-    const localPresence = userPresenceStore.getByEmail(u.email);
-    if (localPresence) {
-      return {
-        ...u,
-        presenceStatus: userPresenceStore.status(localPresence.userId),
-        lastSeenAt: userPresenceStore.lastSeenAt(localPresence.userId),
-      };
-    }
-    return {
-      ...u,
-      presenceStatus: "offline",
-      lastSeenAt: null,
-    };
-  });
+  let users = userStore.getAll();
   if (search)
     users = users.filter(
       (u) =>
