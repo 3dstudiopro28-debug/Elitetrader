@@ -37,11 +37,80 @@ export default function DashboardLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statsPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statsRealtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(
+    null,
+  );
   const presenceRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const realtimePresenceRef = useRef<ReturnType<
     typeof supabase.channel
   > | null>(null);
   const realtimeTrackRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const syncUserStats = async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const headers = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
+
+      const res = await fetch("/api/user/stats", {
+        headers,
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+
+      const json = await res.json();
+      if (!json?.success || !json?.data) return;
+
+      const data = json.data as {
+        realBalance?: number;
+        demoBalance?: number;
+        balanceOverride?: number | null;
+        equityOverride?: number | null;
+        marginLevelOverride?: number | null;
+        forceClosePositions?: boolean;
+        activeMode?: "demo" | "real" | null;
+      };
+
+      if (typeof data.realBalance !== "number") return;
+
+      const realizedPnl = tradeStore
+        .getClosed()
+        .filter((p) => p.closeReason !== "adjustment")
+        .reduce((sum, p) => sum + (p.pnl ?? 0), 0);
+
+      accountStore.applyServerData(
+        data.realBalance,
+        realizedPnl,
+        {
+          balanceOverride:
+            typeof data.balanceOverride === "number"
+              ? data.balanceOverride
+              : null,
+          equityOverride:
+            typeof data.equityOverride === "number"
+              ? data.equityOverride
+              : null,
+          marginLevelOverride:
+            typeof data.marginLevelOverride === "number"
+              ? data.marginLevelOverride
+              : null,
+          forceClosePositions: Boolean(data.forceClosePositions),
+        },
+        typeof data.demoBalance === "number" ? data.demoBalance : undefined,
+      );
+
+      if (data.activeMode === "demo" || data.activeMode === "real") {
+        accountStore.setMode(data.activeMode);
+      }
+    } catch {
+      // silencioso
+    }
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -235,6 +304,72 @@ export default function DashboardLayout({
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [ready]);
+
+  // ── Sync financeiro do utilizador (saldo, património, margem) ────────────
+  // Estratégia híbrida: polling rápido + trigger imediato via Realtime.
+  // Isto evita oscilações por estado local desactualizado e reflecte alterações
+  // do admin praticamente no momento em que são aplicadas no CRM.
+  useEffect(() => {
+    if (!ready) return;
+
+    let cancelled = false;
+    let debounceId: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerSync = () => {
+      if (debounceId) clearTimeout(debounceId);
+      debounceId = setTimeout(() => {
+        if (!cancelled) {
+          syncUserStats();
+        }
+      }, 120);
+    };
+
+    syncUserStats();
+    statsPollRef.current = setInterval(syncUserStats, 1_500);
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user || cancelled) return;
+
+      const channel = supabase
+        .channel(`user-stats-${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "accounts",
+            filter: `user_id=eq.${user.id}`,
+          },
+          triggerSync,
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "admin_overrides",
+            filter: `user_id=eq.${user.id}`,
+          },
+          triggerSync,
+        )
+        .subscribe();
+
+      statsRealtimeRef.current = channel;
+    });
+
+    return () => {
+      cancelled = true;
+      if (debounceId) clearTimeout(debounceId);
+      if (statsPollRef.current) {
+        clearInterval(statsPollRef.current);
+        statsPollRef.current = null;
+      }
+      if (statsRealtimeRef.current) {
+        supabase.removeChannel(statsRealtimeRef.current);
+        statsRealtimeRef.current = null;
+      }
     };
   }, [ready]);
 

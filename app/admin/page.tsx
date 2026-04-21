@@ -53,6 +53,20 @@ async function apiFetch(path: string, opts?: RequestInit) {
   });
 }
 
+function syncUserStoreFromApiResponse(
+  json:
+    | {
+        data?: Partial<CRMUser> & { id?: string };
+      }
+    | null
+    | undefined,
+) {
+  if (json?.data?.id) {
+    userStore.update(json.data.id, json.data);
+    userStore.setCurrent(json.data.id);
+  }
+}
+
 const ADMIN_KEY = "et_admin_unlocked";
 const MAX_ATTEMPTS = 5;
 
@@ -440,7 +454,7 @@ function UserDrawer({
           text: json.error ?? `Erro ${res.status}`,
         });
       } else {
-        // Actualizar form local para reflectir o novo saldo
+        // Atualiza imediatamente o saldo do cliente (frontend)
         setForm((f) => ({
           ...f,
           balance: newBal,
@@ -453,9 +467,18 @@ function UserDrawer({
           type: "ok",
           text: `Saldo de $${newBal.toLocaleString("pt-PT", { minimumFractionDigits: 2 })} aplicado com sucesso.`,
         });
-        // Recarregar stats para confirmar no CRM
-        setTimeout(() => loadStats(), 1500);
+        // Notifica o frontend do cliente para atualizar imediatamente
+        if (window && window.dispatchEvent) {
+          window.dispatchEvent(
+            new CustomEvent("saldo-atualizado", {
+              detail: { userId: form.id, saldo: newBal },
+            }),
+          );
+        }
+        // Atualiza stats imediatamente
+        loadStats();
         setTimeout(() => setApplyBalanceMsg(null), 5000);
+        syncUserStoreFromApiResponse(json);
       }
     } catch {
       setApplyBalanceMsg({ type: "err", text: "Erro de rede" });
@@ -1935,11 +1958,11 @@ function PricesTab() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  async function readJsonSafe(r: Response): Promise<Record<string, unknown>> {
+  async function readJsonSafe(r: Response): Promise<Record<string, any>> {
     const text = await r.text();
     if (!text) return {};
     try {
-      return JSON.parse(text) as Record<string, unknown>;
+      return JSON.parse(text) as Record<string, any>;
     } catch {
       return {};
     }
@@ -2099,7 +2122,7 @@ function PricesTab() {
         <p className="text-xs text-yellow-400 font-medium">
           ⚠️ Nota importante
         </p>
-        <p className="text-xs text-yellow-400/80 mt-1">
+        <p className="text-xs text-yellow-400/80">
           Este override é guardado em memória do servidor. Reiniciar o servidor
           limpa o override (pode reaplicar). Os utilizadores verão o novo preço
           na próxima actualização (máx. 5s).
@@ -2115,7 +2138,9 @@ export default function AdminPage() {
   const [role, setRole] = useState<Role>("subadmin");
   const isSuperAdmin = role === "superadmin";
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [users, setUsers] = useState<CRMUser[]>([]);
+  const [users, setUsers] = useState<(CRMUser & { presenceStatus?: string })[]>(
+    [],
+  );
   const [stats, setStats] = useState(userStore.getStats());
   const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
   const [loading, setLoading] = useState(false);
@@ -2237,6 +2262,14 @@ export default function AdminPage() {
     await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
     setSelectedUser(null);
     await refreshUsers();
+  }
+
+  // Função utilitária para sincronizar o userStore local com o retorno da API após PATCH/POST
+  function syncUserStoreFromApiResponse(json: any) {
+    if (json && json.data && json.data.id) {
+      userStore.update(json.data.id, json.data);
+      userStore.setCurrent(json.data.id);
+    }
   }
 
   if (!unlocked) return <LoginScreen onUnlock={handleUnlock} />;

@@ -27,6 +27,7 @@ import {
 import { useState, useEffect, useCallback } from "react";
 import { useT } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
+import { accountStore } from "@/lib/account-store";
 import { type AccountMode } from "@/lib/user-store";
 import { userStore } from "@/lib/user-store";
 import { profileStore } from "@/lib/profile-store";
@@ -66,10 +67,9 @@ export function DashboardSidebar({
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   // Modo da conta (demo/real) salvo no localStorage
-  const [mode, setModeState] = useState<AccountMode>(() => {
-    if (typeof window === "undefined") return "real";
-    return (localStorage.getItem("crm-mode") as AccountMode) || "real";
-  });
+  const [mode, setModeState] = useState<AccountMode>(() =>
+    accountStore.getMode(),
+  );
   const [copied, setCopied] = useState(false);
   const [demoId, setDemoId] = useState("ET-00001");
   const [realId, setRealId] = useState("RLT-00001");
@@ -157,19 +157,33 @@ export function DashboardSidebar({
   // Atualiza modo da conta ao mudar no localStorage
   const refresh = useCallback(() => {
     if (typeof window === "undefined") return;
-    setModeState((localStorage.getItem("crm-mode") as AccountMode) || "real");
+    setModeState(accountStore.getMode());
   }, []);
 
   useEffect(() => {
     setDemoId(getDemoId());
     setRealId(getRealId());
     refresh();
-    // Buscar nome do usuário do CRM local
-    if (typeof window !== "undefined") {
-      const users = userStore.getAll();
-      const user = users.length > 0 ? users[0] : null;
-      if (user) setUserName(`${user.firstName} ${user.lastName}`);
-    }
+    // Buscar nome do backend
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch("/api/user/profile", {
+        credentials: "include",
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const json = await res.json();
+      if (json.success) {
+        const name = [json.data.firstName, json.data.lastName]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        setUserName(name);
+      }
+    })();
     window.addEventListener("storage", refresh);
     return () => {
       window.removeEventListener("storage", refresh);
@@ -184,10 +198,8 @@ export function DashboardSidebar({
 
   function toggleMode() {
     const next: AccountMode = mode === "demo" ? "real" : "demo";
-    if (typeof window !== "undefined") {
-      localStorage.setItem("crm-mode", next);
-      setModeState(next);
-    }
+    accountStore.setMode(next);
+    setModeState(next);
   }
 
   const handleLogout = useCallback(async () => {
@@ -214,13 +226,29 @@ export function DashboardSidebar({
   }
 
   // Saldo: sempre do CRM local (userStore)
-  const balance = (() => {
-    if (typeof window === "undefined") return 0;
-    const users = userStore.getAll();
-    const user = users.length > 0 ? users[0] : null;
-    if (!user) return 0;
-    return mode === "real" ? (user.realBalance ?? 0) : (user.demoBalance ?? 0);
-  })();
+  // Saldo: sempre do backend
+  const [balance, setBalance] = useState<number>(0);
+  useEffect(() => {
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch("/api/user/profile", {
+        credentials: "include",
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const json = await res.json();
+      if (json.success) {
+        const nextBalance =
+          mode === "demo" ? json.data.demoBalance : json.data.realBalance;
+        if (typeof nextBalance === "number") {
+          setBalance(nextBalance);
+        }
+      }
+    })();
+  }, [mode]);
 
   const isDemo = mode === "demo";
 

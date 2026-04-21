@@ -1,3 +1,14 @@
+// Utilitário para salvar o id do usuário atual
+function setCurrentUserId(id: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("crm-current-id", id);
+}
+
+// Utilitário para obter o id do usuário atual
+function getCurrentUserId(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("crm-current-id");
+}
 // Utilitários mínimos para funcionamento local
 function load(): CRMUser[] {
   if (typeof window === "undefined") return [];
@@ -34,8 +45,9 @@ export type AccountMode = "demo" | "real";
 
 export interface BalanceHistoryEntry {
   value: number;
-  date: string; // ISO
-  admin?: string; // opcional, email/id do admin
+  date: string; // ISO string
+  admin?: string; // ID do administrador responsável
+  reason?: string; // Motivo da alteração
 }
 
 export interface CRMUser {
@@ -77,6 +89,7 @@ export interface CRMUser {
 // Função utilitária para popular o localStorage apenas se não houver usuários
 function seedIfEmpty(): void {
   if (typeof window === "undefined") return;
+  if (window.localStorage.getItem("__crm_seeded")) return;
   const existing = load();
   // Só aplica seed se não houver NENHUM usuário salvo
   if (existing && existing.length > 0) return;
@@ -154,11 +167,23 @@ function seedIfEmpty(): void {
       totalWithdrawn: 0,
     },
   ]);
+  window.localStorage.setItem("__crm_seeded", "1");
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 export const userStore = {
+  /** Define o usuário atual (após login) */
+  setCurrent(id: string) {
+    setCurrentUserId(id);
+  },
+
+  /** Obtém o usuário atual salvo no localStorage, ou null */
+  getCurrent(): CRMUser | null {
+    const id = getCurrentUserId();
+    if (!id) return null;
+    return this.getById(id);
+  },
   /** Return all users */
   getAll(): CRMUser[] {
     seedIfEmpty();
@@ -257,7 +282,12 @@ export const userStore = {
   },
 
   /** Admin: add or remove funds */
-  adjustBalance(id: string, delta: number, adminId?: string): CRMUser | null {
+  adjustBalance(
+    id: string,
+    delta: number,
+    adminId?: string,
+    reason?: string,
+  ): CRMUser | null {
     const user = this.getById(id);
     if (!user) return null;
     const newRealBalance = Math.max(0, (user.realBalance ?? 0) + delta);
@@ -271,6 +301,7 @@ export const userStore = {
       value: newRealBalance,
       date: new Date().toISOString(),
       admin: adminId,
+      reason: reason || "Ajuste de saldo",
     });
     const patch: Partial<CRMUser> = {
       realBalance: newRealBalance,

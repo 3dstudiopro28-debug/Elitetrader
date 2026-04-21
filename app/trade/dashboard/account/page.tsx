@@ -185,6 +185,8 @@ export default function AccountPage() {
   const [activeTab, setActiveTab] = useState<
     "info" | "contact" | "security" | "financial"
   >("info");
+  // Lock para congelar fetchs e inputs durante salvamento
+  const [isLocked, setIsLocked] = useState(false);
 
   // Password change state
   const [currentPass, setCurrentPass] = useState("");
@@ -201,82 +203,54 @@ export default function AccountPage() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
 
-  // Load profile from API
-  useEffect(() => {
-    supabase.auth
-      .getSession()
-      .then(({ data: { session } }) => {
-        const token = session?.access_token;
-        fetch("/api/user/profile", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-          .then((r) => r.json())
-          .then((data) => {
-            if (data.success) {
-              // Mesclar com campos locais (dob, nif, etc.) que não estão no DB
-              const local =
-                typeof window !== "undefined"
-                  ? localStorage.getItem("et_user_profile")
-                  : null;
-              const localParsed = local ? JSON.parse(local) : {};
-              const merged = { ...localParsed, ...data.data };
-              setProfile(merged);
-              // Seed profileStore para que a saudação/sidebar mostrem o nome correto
-              const name = [data.data.firstName, data.data.lastName]
-                .filter(Boolean)
-                .join(" ")
-                .trim();
-              if (name) profileStore.setName(name);
-            } else {
-              throw new Error("API failed");
-            }
-          })
-          .catch(() => {
-            const stored =
-              typeof window !== "undefined"
-                ? localStorage.getItem("et_user_profile")
-                : null;
-            if (stored) setProfile(JSON.parse(stored));
-            else
-              setProfile({
-                id: "demo",
-                email: "",
-                firstName: "",
-                lastName: "",
-                dobDay: "",
-                dobMonth: "",
-                dobYear: "",
-                country: "Brazil",
-                city: "",
-                address: "",
-                postalCode: "",
-                phoneCountryCode: "+55",
-                phone: "",
-                nationality: "Brasil",
-                nif: "",
-                isPep: false,
-                isUsResident: false,
-                idType: "",
-                idNumber: "",
-                currency: "USD",
-                accountId: "13541",
-                cid: "213348",
-                profileCompletion: 2,
-                profileCompletionMax: 4,
-              });
-          })
-          .finally(() => setLoading(false));
+  // Carregar perfil SEM merge com localStorage
+  function fetchProfile() {
+    if (isLocked) return; // Não faz fetch se lock ativo
+    setLoading(true);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const token = session?.access_token;
+      fetch("/api/user/profile", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
-      .catch(() => setLoading(false));
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.success) {
+            setProfile(data.data);
+            const name = [data.data.firstName, data.data.lastName]
+              .filter(Boolean)
+              .join(" ")
+              .trim();
+            if (name) profileStore.setName(name);
+          } else {
+            throw new Error("API failed");
+          }
+        })
+        .catch(() => {
+          setProfile(null);
+        })
+        .finally(() => setLoading(false));
+    });
+  }
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  // Atualização automática a cada 2 segundos
+  useEffect(() => {
+    const interval = setInterval(fetchProfile, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   function update(field: keyof UserProfile, value: string | boolean) {
+    if (isLocked) return; // Não permite editar durante lock
     setProfile((p) => (p ? { ...p, [field]: value } : p));
   }
 
   async function handleSave() {
     if (!profile) return;
     setSaving(true);
+    setIsLocked(true); // Ativa o lock
     try {
       const {
         data: { session },
@@ -296,11 +270,11 @@ export default function AccountPage() {
       if (!res.ok || !json.success)
         throw new Error(json.error ?? "Erro ao guardar");
 
-      localStorage.setItem("et_user_profile", JSON.stringify(profile));
+      // Após salvar, buscar perfil atualizado do backend
+      fetchProfile();
       const name = profile.firstName
         ? `${profile.firstName} ${profile.lastName ?? ""}`.trim()
         : profile.email;
-      // Actualizar o nome no store reactivo → sidebar + saudação actualizam imediatamente
       if (profile.firstName || profile.lastName) {
         profileStore.setName(name);
       }
@@ -315,8 +289,6 @@ export default function AccountPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       setSaveError(msg);
-      // Fallback: guardar apenas localmente
-      localStorage.setItem("et_user_profile", JSON.stringify(profile));
       notificationStore.add(
         "account",
         "Perfil guardado localmente",
@@ -326,6 +298,7 @@ export default function AccountPage() {
       setTimeout(() => setSaved(false), 2000);
     } finally {
       setSaving(false);
+      setIsLocked(false); // Libera o lock
     }
   }
 
@@ -425,6 +398,22 @@ export default function AccountPage() {
             <p className="text-sm text-muted-foreground mt-0.5">
               Gerir informações pessoais e definições
             </p>
+            {/* Saldo da conta */}
+            {profile?.currency && (
+              <div className="mt-2">
+                <span className="text-xs text-muted-foreground mr-2">
+                  Saldo:
+                </span>
+                <span className="text-lg font-bold text-green-600">
+                  {typeof profile.balance === "number"
+                    ? profile.balance.toLocaleString("pt-PT", {
+                        style: "currency",
+                        currency: profile.currency,
+                      })
+                    : (profile.balance ?? "—")}
+                </span>
+              </div>
+            )}
           </div>
           <button
             onClick={handleSave}

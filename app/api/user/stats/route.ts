@@ -49,10 +49,18 @@ export async function GET(req: NextRequest) {
     const mem = adminOverrideStore.get(userId);
 
     // Buscar conta real e conta demo do DB (separadas)
-    const { data: accounts } = await sb
+    const { data: accounts, error: accountsErr } = await sb
       .from("accounts")
       .select("id, balance, leverage, currency, mode")
       .eq("user_id", userId);
+
+    if (accountsErr) {
+      console.error("[user/stats] accounts error:", accountsErr.message);
+      return NextResponse.json(
+        { success: false, error: "Conta indisponível temporariamente" },
+        { status: 503 },
+      );
+    }
 
     const { data: dbOverride } = await sb
       .from("admin_overrides")

@@ -12,10 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, hasServiceRole } from "@/lib/supabase-server";
 import { userStore } from "@/lib/user-store";
-import {
-  adminOverrideStore,
-  AdminOverrideEntry,
-} from "@/lib/admin-override-store";
+// Removido adminOverrideStore: overrides agora vêm do banco
 import { requireAdmin } from "@/lib/admin-auth";
 import { userPresenceStore } from "@/lib/user-presence-store";
 
@@ -55,38 +52,31 @@ function normalizeUser(
   profile: any,
   demoAccount: any,
   realAccount: any,
-  override: AdminOverrideEntry | null,
+  override: {
+    balance_override?: number | null;
+    margin_override?: number | null;
+  } | null,
 ) {
   // A conta "principal" para leverage/currency/status deve priorizar a real
   const primaryAccount = realAccount ?? null;
 
-  // Suporte a ambos o
-  // s schemas: first_name/last_name (novo) ou name (antigo)
-  const firstName =
-    profile.first_name !== undefined
-      ? (profile.first_name ?? "")
-      : profile.name
-        ? String(profile.name).split(" ")[0]
-        : "";
-  const lastName =
-    profile.last_name !== undefined
-      ? (profile.last_name ?? "")
-      : profile.name
-        ? String(profile.name).split(" ").slice(1).join(" ")
-        : "";
+  // Apenas novo schema: first_name/last_name (NÃO faz fallback para name)
+  const firstName = profile.first_name ?? "";
+  const lastName = profile.last_name ?? "";
 
-  // mode: override do admin tem prioridade; depois conta real/demo; default "real"
-  const effectiveMode =
-    (override?.mode as "demo" | "real" | undefined) ??
-    primaryAccount?.mode ??
-    profile.mode ??
-    "real";
+  // mode: prioridade: conta real, depois profile, default "real"
+  const effectiveMode = primaryAccount?.mode ?? profile.mode ?? "real";
   const effectiveStatus = primaryAccount?.status ?? profile.status ?? "active";
 
   // Saldo demo: sempre $100k (conta de treino)
   const computedDemo = demoAccount?.balance ?? 100_000;
-  // Saldo real: lê da conta real com fallback de override em memória.
-  const computedReal = realAccount?.balance ?? override?.balance ?? 0;
+  // Saldo real: lê do override persistente se existir, senão da conta real
+  const computedReal =
+    override &&
+    override.balance_override !== null &&
+    override.balance_override !== undefined
+      ? Number(override.balance_override)
+      : (realAccount?.balance ?? 0);
   const dbOnline = isRecentlyActive(profile.updated_at);
   const memOnline = userPresenceStore.status(profile.id) === "online";
   const effectiveOnline = dbOnline || memOnline;
@@ -108,10 +98,10 @@ function normalizeUser(
     realBalance: computedReal,
     leverage: primaryAccount?.leverage ?? 200,
     currency: primaryAccount?.currency ?? "USD",
-    balanceOverride: override?.balanceOverride ?? null,
-    marginLevelOverride: override?.marginLevelOverride ?? null,
-    equityOverride: override?.equityOverride ?? null,
-    adminNotes: override?.note ?? "",
+    balanceOverride: override?.balance_override ?? null,
+    marginLevelOverride: override?.margin_override ?? null,
+    equityOverride: null,
+    adminNotes: "",
     lastLogin: profile.last_sign_in_at ?? null,
     kycStatus: profile.kyc_status ?? "unverified",
     totalDeposited: primaryAccount?.total_deposited ?? 0,
@@ -145,6 +135,14 @@ export async function GET(req: NextRequest) {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // Buscar todos os overrides persistentes de uma vez
+    const { data: overridesData } = await sb
+      .from("admin_overrides")
+      .select("user_id, balance_override, margin_override");
+    const overrideMap = new Map(
+      (overridesData ?? []).map((o: any) => [o.user_id, o]),
+    );
+
     let users = (profiles ?? []).map((p: any) => {
       const accountsArr = Array.isArray(p.accounts)
         ? p.accounts
@@ -155,8 +153,8 @@ export async function GET(req: NextRequest) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const demoAcc = accountsArr.find((a: any) => a.mode === "demo") ?? null;
       const realAcc = pickRealAccount(accountsArr);
-      // Overrides vêm do store em memória (não do DB)
-      const override = adminOverrideStore.get(p.id);
+      // Overrides vêm do banco (persistente)
+      const override = overrideMap.get(p.id) ?? null;
       return normalizeUser(p, demoAcc, realAcc, override);
     });
 
@@ -295,6 +293,7 @@ export async function POST(req: NextRequest) {
       phone,
       country,
     });
+    userStore.setCurrent(user.id);
     return NextResponse.json(
       { success: true, data: user, source: "local" },
       { status: 201 },

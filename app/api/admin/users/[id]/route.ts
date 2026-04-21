@@ -283,7 +283,10 @@ export async function PATCH(
       // Gravar em admin_overrides garante consistência entre requests.
       const dbOverridePatch: Record<string, unknown> = {
         user_id: id,
+        id: id, // Garante que o campo 'id' (PK) nunca é nulo
         updated_by: "admin",
+        // Sempre refletir o saldo ajustado no balance_override
+        ...(balanceToSet !== null ? { balance_override: balanceToSet } : {}),
       };
       if (body.marginLevelOverride !== undefined) {
         dbOverridePatch.margin_level_override = body.marginLevelOverride;
@@ -307,7 +310,6 @@ export async function PATCH(
       if (ovErr) {
         warnings.push("Admin override (db): " + ovErr.message);
       }
-
       return NextResponse.json({
         success: true,
         source: "supabase",
