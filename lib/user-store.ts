@@ -1,33 +1,3 @@
-// Utilitário para salvar o id do usuário atual
-function setCurrentUserId(id: string) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem("crm-current-id", id);
-}
-
-// Utilitário para obter o id do usuário atual
-function getCurrentUserId(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem("crm-current-id");
-}
-// Utilitários mínimos para funcionamento local
-function load(): CRMUser[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem("crm-users");
-    return raw ? (JSON.parse(raw) as CRMUser[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function save(users: CRMUser[]): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem("crm-users", JSON.stringify(users));
-}
-
-function genId(): string {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
 /**
  * lib/user-store.ts
  *
@@ -42,13 +12,6 @@ function genId(): string {
 
 export type UserStatus = "active" | "suspended" | "pending";
 export type AccountMode = "demo" | "real";
-
-export interface BalanceHistoryEntry {
-  value: number;
-  date: string; // ISO string
-  admin?: string; // ID do administrador responsável
-  reason?: string; // Motivo da alteração
-}
 
 export interface CRMUser {
   id: string;
@@ -76,24 +39,46 @@ export interface CRMUser {
   // Admin notes
   adminNotes: string;
 
-  // Campos adicionais usados no seed e lógica
+  // Meta
   lastLogin: string | null;
-  kycStatus: "verified" | "pending" | "unverified";
+  presenceStatus?: "online" | "offline";
+  lastSeenAt?: string | null;
+  kycStatus: "unverified" | "pending" | "verified";
   totalDeposited: number;
   totalWithdrawn: number;
-
-  // Histórico de alterações de saldo real
-  realBalanceHistory?: BalanceHistoryEntry[];
 }
 
-// Função utilitária para popular o localStorage apenas se não houver usuários
+const STORE_KEY = "et_crm_users";
+
+function genId(): string {
+  return (
+    "usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+  );
+}
+
+function load(): CRMUser[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    return raw ? (JSON.parse(raw) as CRMUser[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function save(users: CRMUser[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(STORE_KEY, JSON.stringify(users));
+}
+
+// ─── Seed demo users if list is empty ─────────────────────────────────────────
 function seedIfEmpty(): void {
   if (typeof window === "undefined") return;
-  if (window.localStorage.getItem("__crm_seeded")) return;
   const existing = load();
-  // Só aplica seed se não houver NENHUM usuário salvo
-  if (existing && existing.length > 0) return;
-  save([
+  if (existing.length > 0) return;
+
+  const now = new Date().toISOString();
+  const seed: CRMUser[] = [
     {
       id: genId(),
       email: "joao.silva@email.com",
@@ -166,24 +151,13 @@ function seedIfEmpty(): void {
       totalDeposited: 0,
       totalWithdrawn: 0,
     },
-  ]);
-  window.localStorage.setItem("__crm_seeded", "1");
+  ];
+  save(seed);
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 export const userStore = {
-  /** Define o usuário atual (após login) */
-  setCurrent(id: string) {
-    setCurrentUserId(id);
-  },
-
-  /** Obtém o usuário atual salvo no localStorage, ou null */
-  getCurrent(): CRMUser | null {
-    const id = getCurrentUserId();
-    if (!id) return null;
-    return this.getById(id);
-  },
   /** Return all users */
   getAll(): CRMUser[] {
     seedIfEmpty();
@@ -192,15 +166,13 @@ export const userStore = {
 
   /** Find user by id */
   getById(id: string): CRMUser | null {
-    return load().find((u: CRMUser) => u.id === id) ?? null;
+    return load().find((u) => u.id === id) ?? null;
   },
 
   /** Find user by email */
   getByEmail(email: string): CRMUser | null {
     return (
-      load().find(
-        (u: CRMUser) => u.email.toLowerCase() === email.toLowerCase(),
-      ) ?? null
+      load().find((u) => u.email.toLowerCase() === email.toLowerCase()) ?? null
     );
   },
 
@@ -245,7 +217,7 @@ export const userStore = {
   /** Update any fields of a user (admin use) */
   update(id: string, patch: Partial<CRMUser>): CRMUser | null {
     const users = load();
-    const idx = users.findIndex((u: CRMUser) => u.id === id);
+    const idx = users.findIndex((u) => u.id === id);
     if (idx === -1) return null;
     users[idx] = { ...users[idx], ...patch };
     save(users);
@@ -255,7 +227,7 @@ export const userStore = {
   /** Delete a user */
   delete(id: string): boolean {
     const users = load();
-    const filtered = users.filter((u: CRMUser) => u.id !== id);
+    const filtered = users.filter((u) => u.id !== id);
     if (filtered.length === users.length) return false;
     save(filtered);
     return true;
@@ -282,34 +254,11 @@ export const userStore = {
   },
 
   /** Admin: add or remove funds */
-  adjustBalance(
-    id: string,
-    delta: number,
-    adminId?: string,
-    reason?: string,
-  ): CRMUser | null {
+  adjustBalance(id: string, delta: number): CRMUser | null {
     const user = this.getById(id);
     if (!user) return null;
-    const newRealBalance = Math.max(0, (user.realBalance ?? 0) + delta);
-    // Atualiza histórico
-    const history: BalanceHistoryEntry[] = Array.isArray(
-      user.realBalanceHistory,
-    )
-      ? [...user.realBalanceHistory]
-      : [];
-    history.push({
-      value: newRealBalance,
-      date: new Date().toISOString(),
-      admin: adminId,
-      reason: reason || "Ajuste de saldo",
-    });
-    const patch: Partial<CRMUser> = {
-      realBalance: newRealBalance,
-      realBalanceHistory: history,
-      // Sempre reflete o saldo correto no campo balance
-      balance: user.mode === "real" ? newRealBalance : user.demoBalance,
-    };
-    return this.update(id, patch);
+    const newBalance = Math.max(0, (user.balance ?? 0) + delta);
+    return this.update(id, { balance: newBalance });
   },
 
   /** Stats for admin dashboard */
@@ -317,15 +266,12 @@ export const userStore = {
     const users = load();
     return {
       total: users.length,
-      active: users.filter((u: CRMUser) => u.status === "active").length,
-      suspended: users.filter((u: CRMUser) => u.status === "suspended").length,
-      pending: users.filter((u: CRMUser) => u.status === "pending").length,
-      demo: users.filter((u: CRMUser) => u.mode === "demo").length,
-      real: users.filter((u: CRMUser) => u.mode === "real").length,
-      totalDeposited: users.reduce(
-        (s: number, u: CRMUser) => s + u.totalDeposited,
-        0,
-      ),
+      active: users.filter((u) => u.status === "active").length,
+      suspended: users.filter((u) => u.status === "suspended").length,
+      pending: users.filter((u) => u.status === "pending").length,
+      demo: users.filter((u) => u.mode === "demo").length,
+      real: users.filter((u) => u.mode === "real").length,
+      totalDeposited: users.reduce((s, u) => s + u.totalDeposited, 0),
     };
   },
 };

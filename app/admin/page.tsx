@@ -53,20 +53,6 @@ async function apiFetch(path: string, opts?: RequestInit) {
   });
 }
 
-function syncUserStoreFromApiResponse(
-  json:
-    | {
-        data?: Partial<CRMUser> & { id?: string };
-      }
-    | null
-    | undefined,
-) {
-  if (json?.data?.id) {
-    userStore.update(json.data.id, json.data);
-    userStore.setCurrent(json.data.id);
-  }
-}
-
 const ADMIN_KEY = "et_admin_unlocked";
 const MAX_ATTEMPTS = 5;
 
@@ -305,9 +291,6 @@ function UserDrawer({
   isSuperAdmin: boolean;
 }) {
   const [form, setForm] = useState<CRMUser>({ ...user });
-  useEffect(() => {
-    setForm({ ...user });
-  }, [user]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -454,7 +437,7 @@ function UserDrawer({
           text: json.error ?? `Erro ${res.status}`,
         });
       } else {
-        // Atualiza imediatamente o saldo do cliente (frontend)
+        // Actualizar form local para reflectir o novo saldo
         setForm((f) => ({
           ...f,
           balance: newBal,
@@ -467,18 +450,9 @@ function UserDrawer({
           type: "ok",
           text: `Saldo de $${newBal.toLocaleString("pt-PT", { minimumFractionDigits: 2 })} aplicado com sucesso.`,
         });
-        // Notifica o frontend do cliente para atualizar imediatamente
-        if (window && window.dispatchEvent) {
-          window.dispatchEvent(
-            new CustomEvent("saldo-atualizado", {
-              detail: { userId: form.id, saldo: newBal },
-            }),
-          );
-        }
-        // Atualiza stats imediatamente
-        loadStats();
+        // Recarregar stats para confirmar no CRM
+        setTimeout(() => loadStats(), 1500);
         setTimeout(() => setApplyBalanceMsg(null), 5000);
-        syncUserStoreFromApiResponse(json);
       }
     } catch {
       setApplyBalanceMsg({ type: "err", text: "Erro de rede" });
@@ -536,14 +510,11 @@ function UserDrawer({
           : d.accounts
             ? [d.accounts]
             : [];
-        const explicitReal = allAccounts.find((a) => a.mode === "real");
-        const nonDemoAcc = allAccounts.find((a) => {
-          const mode = String(a.mode ?? "").toLowerCase();
-          return mode && mode !== "demo";
-        });
-        const realAcc = explicitReal ?? nonDemoAcc ?? undefined;
+        const realAcc = allAccounts.find((a) => a.mode === "real");
         const demoAcc = allAccounts.find((a) => a.mode === "demo");
+        const anyAcc = allAccounts[0];
         const memOv = d._memOverride ?? null;
+        // NUNCA usar conta demo como fallback do saldo real — usa 0 se não existir conta real
         const realBal = realAcc?.balance ?? memOv?.balance ?? 0;
         setStatsData({
           balance: realBal,
@@ -551,10 +522,10 @@ function UserDrawer({
           openPositions: d.open_positions ?? 0,
           closedPositions: d.closed_positions ?? 0,
           totalPnl: d.total_pnl ?? 0,
-          totalDeposited: realAcc?.total_deposited ?? form.totalDeposited ?? 0,
-          totalWithdrawn: realAcc?.total_withdrawn ?? form.totalWithdrawn ?? 0,
-          leverage: realAcc?.leverage ?? form.leverage ?? 200,
-          currency: realAcc?.currency ?? form.currency ?? "USD",
+          totalDeposited: anyAcc?.total_deposited ?? form.totalDeposited ?? 0,
+          totalWithdrawn: anyAcc?.total_withdrawn ?? form.totalWithdrawn ?? 0,
+          leverage: anyAcc?.leverage ?? form.leverage ?? 200,
+          currency: anyAcc?.currency ?? form.currency ?? "USD",
           equityOverride: memOv?.equityOverride ?? form.equityOverride ?? null,
           marginLevelOverride:
             memOv?.marginLevelOverride ?? form.marginLevelOverride ?? null,
@@ -1958,11 +1929,11 @@ function PricesTab() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  async function readJsonSafe(r: Response): Promise<Record<string, any>> {
+  async function readJsonSafe(r: Response): Promise<Record<string, unknown>> {
     const text = await r.text();
     if (!text) return {};
     try {
-      return JSON.parse(text) as Record<string, any>;
+      return JSON.parse(text) as Record<string, unknown>;
     } catch {
       return {};
     }
@@ -2122,7 +2093,7 @@ function PricesTab() {
         <p className="text-xs text-yellow-400 font-medium">
           ⚠️ Nota importante
         </p>
-        <p className="text-xs text-yellow-400/80">
+        <p className="text-xs text-yellow-400/80 mt-1">
           Este override é guardado em memória do servidor. Reiniciar o servidor
           limpa o override (pode reaplicar). Os utilizadores verão o novo preço
           na próxima actualização (máx. 5s).
@@ -2138,9 +2109,7 @@ export default function AdminPage() {
   const [role, setRole] = useState<Role>("subadmin");
   const isSuperAdmin = role === "superadmin";
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [users, setUsers] = useState<(CRMUser & { presenceStatus?: string })[]>(
-    [],
-  );
+  const [users, setUsers] = useState<CRMUser[]>([]);
   const [stats, setStats] = useState(userStore.getStats());
   const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
   const [loading, setLoading] = useState(false);
@@ -2262,14 +2231,6 @@ export default function AdminPage() {
     await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
     setSelectedUser(null);
     await refreshUsers();
-  }
-
-  // Função utilitária para sincronizar o userStore local com o retorno da API após PATCH/POST
-  function syncUserStoreFromApiResponse(json: any) {
-    if (json && json.data && json.data.id) {
-      userStore.update(json.data.id, json.data);
-      userStore.setCurrent(json.data.id);
-    }
   }
 
   if (!unlocked) return <LoginScreen onUnlock={handleUnlock} />;

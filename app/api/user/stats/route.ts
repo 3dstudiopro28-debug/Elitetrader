@@ -49,18 +49,10 @@ export async function GET(req: NextRequest) {
     const mem = adminOverrideStore.get(userId);
 
     // Buscar conta real e conta demo do DB (separadas)
-    const { data: accounts, error: accountsErr } = await sb
+    const { data: accounts } = await sb
       .from("accounts")
       .select("id, balance, leverage, currency, mode")
       .eq("user_id", userId);
-
-    if (accountsErr) {
-      console.error("[user/stats] accounts error:", accountsErr.message);
-      return NextResponse.json(
-        { success: false, error: "Conta indisponível temporariamente" },
-        { status: 503 },
-      );
-    }
 
     const { data: dbOverride } = await sb
       .from("admin_overrides")
@@ -83,15 +75,15 @@ export async function GET(req: NextRequest) {
     const realAccount = accs.find((a) => a.mode === "real");
     const demoAccount = accs.find((a) => a.mode === "demo");
 
-    // Conta real: DB é a fonte de verdade.
-    // Em ambiente serverless/multi-instância, memória local pode ficar desactualizada
-    // e causar "volta" de saldo entre requests. Memória fica apenas como fallback.
-    const dbRealBalance = realAccount?.balance ?? null;
+    // Conta real: mem é imediata (mesmo lambda após PATCH); DB é fallback persistente.
+    // Se mem tiver um valor e for maior que zero, usa-o primeiro para resposta imediata.
+    // Caso o lambda reinicie (cold start), mem é null e cai para o DB.
+    const dbRealBalance = realAccount?.balance ?? 0;
     const dbOverrideBalance =
       (dbOverride as { balance_adjustment?: number } | null)
         ?.balance_adjustment ?? null;
     const effectiveRealBalance =
-      dbRealBalance ?? dbOverrideBalance ?? mem?.balance ?? 0;
+      mem?.balance ?? dbOverrideBalance ?? dbRealBalance;
 
     // Conta demo: NUNCA afectada pelo admin — sempre do DB com fallback 100k fixo
     const demoBalance = demoAccount
@@ -113,23 +105,22 @@ export async function GET(req: NextRequest) {
         realBalance,
         leverage: realAccount?.leverage ?? demoAccount?.leverage ?? 200,
         currency: realAccount?.currency ?? demoAccount?.currency ?? "USD",
-        // Saldo é controlado por realBalance (fonte principal: accounts.balance).
-        // Não enviar balanceOverride evita reaplicação de valor antigo no cliente.
+        // Admin overrides — balanceOverride removido (saldo controlado via Financeiro)
         balanceOverride: null,
         equityOverride:
+          mem?.equityOverride ??
           (dbOverride as { equity_override?: number } | null)
             ?.equity_override ??
-          mem?.equityOverride ??
           null,
         marginLevelOverride:
+          mem?.marginLevelOverride ??
           (dbOverride as { margin_level_override?: number } | null)
             ?.margin_level_override ??
-          mem?.marginLevelOverride ??
           null,
         forceClosePositions:
+          mem?.forceClose ??
           (dbOverride as { force_close_positions?: boolean } | null)
             ?.force_close_positions ??
-          mem?.forceClose ??
           false,
         activeMode: effectiveMode,
       },

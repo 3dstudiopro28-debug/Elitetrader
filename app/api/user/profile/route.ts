@@ -55,53 +55,29 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { data: accountRows, error: accountErr } = await sb
+    const { data: accountRows } = await sb
       .from("accounts")
-      .select("id, balance, currency, mode")
+      .select("id, balance, currency")
       .eq("user_id", user.id);
 
-    if (accountErr) {
-      console.error("[user/profile] accounts error:", accountErr.message);
-      return NextResponse.json(
-        { success: false, error: "Conta indisponível temporariamente" },
-        { status: 503 },
-      );
-    }
-
-    const accounts =
-      (accountRows as
-        | { id: string; balance: number; currency: string; mode?: string }[]
-        | null) ?? [];
-
-    const realAccount =
-      accounts.find((acc) => (acc.mode ?? "").toLowerCase() === "real") ??
-      accounts[0] ??
-      null;
-
-    const demoAccount =
-      accounts.find((acc) => (acc.mode ?? "").toLowerCase() === "demo") ?? null;
+    // Schema real: apenas uma conta por utilizador (sem coluna mode)
+    const account =
+      (
+        accountRows as
+          | { id: string; balance: number; currency: string }[]
+          | null
+      )?.[0] ?? null;
 
     // Suporte a schema antigo (name) e novo (first_name/last_name)
     const prof = profile as Record<string, string | null>;
-    const firstName = prof.first_name ?? "";
-    const lastName = prof.last_name ?? "";
-
-    // Buscar override de saldo
-    let balanceOverride: number | null = null;
-    try {
-      const { data: override } = await sb
-        .from("admin_overrides")
-        .select("balance_override")
-        .eq("user_id", user.id)
-        .single();
-      if (
-        override &&
-        override.balance_override !== null &&
-        override.balance_override !== undefined
-      ) {
-        balanceOverride = Number(override.balance_override);
-      }
-    } catch {}
+    const firstName =
+      prof.first_name ?? (prof.name ? prof.name.split(" ")[0] : "") ?? "";
+    const lastName =
+      prof.last_name ??
+      (prof.name?.includes(" ")
+        ? prof.name.split(" ").slice(1).join(" ")
+        : "") ??
+      "";
 
     return NextResponse.json({
       success: true,
@@ -120,8 +96,8 @@ export async function GET(req: NextRequest) {
         profileCompletion:
           (profile as Record<string, unknown>).profile_completion ?? 0,
         profileCompletionMax: 4,
-        currency: realAccount?.currency ?? demoAccount?.currency ?? "USD",
-        accountId: realAccount?.id ?? demoAccount?.id ?? "",
+        currency: account?.currency ?? "USD",
+        accountId: account?.id ?? "",
         createdAt: prof.created_at,
         dobDay: prof.dob_day ?? "",
         dobMonth: prof.dob_month ?? "",
@@ -135,14 +111,6 @@ export async function GET(req: NextRequest) {
         cid: (prof.id ?? "").slice(0, 6).toUpperCase(),
         forcePasswordChange:
           (profile as Record<string, unknown>).force_password_change ?? false,
-        // Fonte de verdade: saldo real em accounts. override só como fallback.
-        balance:
-          realAccount?.balance ??
-          (balanceOverride !== null
-            ? balanceOverride
-            : (demoAccount?.balance ?? 0)),
-        realBalance: realAccount?.balance ?? 0,
-        demoBalance: demoAccount?.balance ?? 100_000,
       },
     });
   } catch (err) {

@@ -39,7 +39,6 @@ async function ensureDefaultAccounts(
     });
   }
 
-  // Nunca sobrescrever conta real existente!
   if (!real) {
     await sb.from("accounts").insert({
       user_id: userId,

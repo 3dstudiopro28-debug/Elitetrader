@@ -27,9 +27,11 @@ import {
 import { useState, useEffect, useCallback } from "react";
 import { useT } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
-import { accountStore } from "@/lib/account-store";
-import { type AccountMode } from "@/lib/user-store";
-import { userStore } from "@/lib/user-store";
+import {
+  accountStore,
+  type AccountMode,
+  DEMO_START_BALANCE,
+} from "@/lib/account-store";
 import { profileStore } from "@/lib/profile-store";
 import { tradeStore } from "@/lib/trade-store";
 
@@ -66,7 +68,6 @@ export function DashboardSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
-  // Modo da conta (demo/real) salvo no localStorage
   const [mode, setModeState] = useState<AccountMode>(() =>
     accountStore.getMode(),
   );
@@ -154,9 +155,7 @@ export function DashboardSidebar({
   const STEPS_TOTAL = 4;
   const STEPS_DONE = dbBal !== null && dbBal > 0 ? 4 : userName ? 2 : 1;
 
-  // Atualiza modo da conta ao mudar no localStorage
   const refresh = useCallback(() => {
-    if (typeof window === "undefined") return;
     setModeState(accountStore.getMode());
   }, []);
 
@@ -164,29 +163,58 @@ export function DashboardSidebar({
     setDemoId(getDemoId());
     setRealId(getRealId());
     refresh();
-    // Buscar nome do backend
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      const res = await fetch("/api/user/profile", {
-        credentials: "include",
-        cache: "no-store",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const json = await res.json();
-      if (json.success) {
-        const name = [json.data.firstName, json.data.lastName]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-        setUserName(name);
-      }
-    })();
-    window.addEventListener("storage", refresh);
+    const u1 = accountStore.subscribe(refresh);
+    const u2 = tradeStore.subscribe(refresh);
+
+    // Subscrever ao profileStore para actualizações em tempo real
+    const u3 = profileStore.subscribe(() => {
+      const n = profileStore.getName();
+      if (n) setUserName(n);
+    });
+
+    // Buscar nome do utilizador
+    const cached = profileStore.getName();
+    if (cached) {
+      setUserName(cached);
+    } else {
+      supabase.auth
+        .getSession()
+        .then(({ data: { session } }) => {
+          if (!session?.user) return;
+          const meta = session.user.user_metadata;
+          const first = meta?.first_name ?? meta?.given_name ?? "";
+          const last = meta?.last_name ?? meta?.family_name ?? "";
+          if (first || last) {
+            const n = [first, last].filter(Boolean).join(" ");
+            profileStore.setName(n);
+            setUserName(n);
+            return;
+          }
+          // fallback: buscar da tabela profiles
+          supabase
+            .from("profiles")
+            .select("first_name, last_name")
+            .eq("id", session.user.id)
+            .single()
+            .then(({ data }) => {
+              if (data) {
+                const name = [data.first_name, data.last_name]
+                  .filter(Boolean)
+                  .join(" ");
+                if (name) {
+                  profileStore.setName(name);
+                  setUserName(name);
+                }
+              }
+            });
+        })
+        .catch(() => {});
+    }
+
     return () => {
-      window.removeEventListener("storage", refresh);
+      u1();
+      u2();
+      u3();
     };
   }, [refresh]);
 
@@ -203,13 +231,7 @@ export function DashboardSidebar({
   }
 
   const handleLogout = useCallback(async () => {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("sb-access-token");
-      localStorage.removeItem("sb-refresh-token");
-      localStorage.removeItem("sb-expires-at");
-      localStorage.removeItem("sb-provider-token");
-      localStorage.removeItem("sb-provider-refresh-token");
-    }
+    if (typeof window !== "undefined") localStorage.clear();
     try {
       await supabase.auth.signOut();
     } catch {
@@ -225,30 +247,21 @@ export function DashboardSidebar({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  // Saldo: sempre do CRM local (userStore)
-  // Saldo: sempre do backend
-  const [balance, setBalance] = useState<number>(0);
-  useEffect(() => {
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      const res = await fetch("/api/user/profile", {
-        credentials: "include",
-        cache: "no-store",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const json = await res.json();
-      if (json.success) {
-        const nextBalance =
-          mode === "demo" ? json.data.demoBalance : json.data.realBalance;
-        if (typeof nextBalance === "number") {
-          setBalance(nextBalance);
-        }
-      }
-    })();
-  }, [mode]);
+  // Balance display — usa saldo do DB (separado por modo) + PnL realizado local
+  // Modo real: apenas trades do utilizador (não adjustment) afectam o saldo
+  const balance = (() => {
+    const closed = tradeStore.getClosed();
+    const realized = closed
+      .filter((p) => p.closeReason !== "adjustment")
+      .reduce((s, p) => s + p.pnl, 0);
+    const dbBal = accountStore.getDBBalance(mode);
+    if (mode === "real") {
+      const epoch = accountStore.getBalanceEpoch();
+      return (dbBal ?? 0) + (realized - epoch);
+    }
+    // Conta demo: parte de $100k se não há dado do DB
+    return (dbBal ?? DEMO_START_BALANCE) + realized;
+  })();
 
   const isDemo = mode === "demo";
 
