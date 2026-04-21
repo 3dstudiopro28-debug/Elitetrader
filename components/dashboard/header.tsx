@@ -352,7 +352,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       );
     });
     // Poll levemente mais lento para suavizar atualização de patrimônio/margens.
-    const iv = setInterval(syncUserStats, 1500);
+    const iv = setInterval(syncUserStats, 1650);
     return () => {
       u1();
       u2();
@@ -659,7 +659,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);
-    }, 550);
+    }, 620);
     return () => clearInterval(iv);
   }, []);
 

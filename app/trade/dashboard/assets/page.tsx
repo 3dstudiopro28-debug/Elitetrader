@@ -2474,7 +2474,10 @@ function AssetsPageInner() {
     // Mantém variações pequenas e menos frequentes que saldo/margens.
     setChanges(
       Object.fromEntries(
-        ASSETS.map((a) => [a.id, parseFloat((Math.random() * 1.2 - 0.6).toFixed(2))]),
+        ASSETS.map((a) => [
+          a.id,
+          parseFloat((Math.random() * 1.2 - 0.6).toFixed(2)),
+        ]),
       ),
     );
 
