@@ -351,8 +351,8 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         ),
       );
     });
-    // Poll mais espaçado para manter números do header/saldo mais calmos.
-    const iv = setInterval(syncUserStats, 6_500);
+    // Poll agressivo para manter números do header/saldo sempre vivos.
+    const iv = setInterval(syncUserStats, 1_200);
     return () => {
       u1();
       u2();
@@ -435,7 +435,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
     };
   }, [syncUserStats]);
 
-  // Live price polling moderado — único poller Finnhub da aplicação.
+  // Live price polling rápido — único poller Finnhub da aplicação.
   // Escreve no priceStore (cache partilhado) → portfolio e outros subscrevem.
   // TP/SL aqui: funciona em qualquer página, não só no portfolio.
   useEffect(() => {
@@ -540,14 +540,14 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       );
     }
     poll();
-    const iv = setInterval(poll, 7_000);
+    const iv = setInterval(poll, 1_800);
     return () => {
       dead = true;
       clearInterval(iv);
     };
   }, [recompute, refreshNotifs]);
 
-  // ─── Simulação moderada para TODOS os activos com posições abertas ───────
+  // ─── Simulação rápida para TODOS os activos com posições abertas ─────────
   // Garante que equity/margem/PnL flutuam em qualquer página da aplicação.
   // O poll Finnhub (8s) sobrepõe com preços reais quando disponíveis.
   // Sem esta simulação, assets com código Finnhub mas sem cotação live (d.c=0)
@@ -650,16 +650,16 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
           BASE[pos.assetId] ??
           pos.openPrice;
         const vol = base * (VOL[pos.assetId] ?? DEFAULT_VOL);
-        // Flutuação aleatória mais suave para interface estável.
+        // Flutuação aleatória ainda mais viva para interface dinâmica.
         // O poll Finnhub sobrepõe quando há cotação real.
         patch[pos.assetId] = Math.max(
           base * 0.1,
-          base + (Math.random() - 0.5) * vol * 1.1,
+          base + (Math.random() - 0.5) * vol * 4.4,
         );
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);
-    }, 2_500);
+    }, 320);
     return () => clearInterval(iv);
   }, []);
 
