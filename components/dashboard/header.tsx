@@ -352,7 +352,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       );
     });
     // Poll agressivo para manter números do header/saldo sempre vivos.
-    const iv = setInterval(syncUserStats, 1_200);
+    const iv = setInterval(syncUserStats, 3500);
     return () => {
       u1();
       u2();
@@ -540,7 +540,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       );
     }
     poll();
-    const iv = setInterval(poll, 1_800);
+    const iv = setInterval(poll, 5000);
     return () => {
       dead = true;
       clearInterval(iv);
@@ -654,12 +654,12 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         // O poll Finnhub sobrepõe quando há cotação real.
         patch[pos.assetId] = Math.max(
           base * 0.1,
-          base + (Math.random() - 0.5) * vol * 4.4,
+          base + (Math.random() - 0.5) * vol * 0.012,
         );
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);
-    }, 320);
+    }, 2500);
     return () => clearInterval(iv);
   }, []);
 

@@ -238,7 +238,7 @@ export default function DashboardPage() {
   useEffect(() => {
     // Arrancar simulação imediatamente para ter valores não-zero
     tick();
-    const id = setInterval(tick, 700);
+    const id = setInterval(tick, 2000);
     return () => clearInterval(id);
   }, [tick]);
 
