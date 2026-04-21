@@ -52,16 +52,12 @@ export default function DashboardLayout({
             if (!refreshed) router.replace("/auth/login");
             else {
               clearStaleUserData(refreshed.user.id);
-              // Em cada novo login, iniciar sempre em conta real.
-              accountStore.setMode("real");
               setReady(true);
             }
           })
           .catch(() => router.replace("/auth/login"));
       } else {
         clearStaleUserData(session.user.id);
-        // Em cada novo login, iniciar sempre em conta real.
-        accountStore.setMode("real");
         setReady(true);
       }
     });
@@ -122,19 +118,7 @@ export default function DashboardLayout({
         if (!res.ok) return;
         const { data } = await res.json();
         if (Array.isArray(data) && data.length > 0) {
-          // Só carregar posições abertas recentes (última 1h) para evitar
-          // artefactos de sessões anteriores que nunca foram fechados no DB.
-          // Este cutoff deve ser idêntico ao do servidor (admin/users/[id]/route.ts).
-          const cutoff = Date.now() - 60 * 60 * 1000; // 1 hora
-          const recent = (data as Record<string, unknown>[]).filter((row) => {
-            const openedAt = new Date(
-              String(row.opened_at ?? row.openedAt ?? 0),
-            ).getTime();
-            return openedAt > cutoff;
-          });
-          if (recent.length > 0) {
-            tradeStore.initOpenFromRemote(recent);
-          }
+          tradeStore.initOpenFromRemote(data as Record<string, unknown>[]);
         }
       } catch {
         /* falha silenciosa */

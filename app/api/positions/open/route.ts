@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
             .from("accounts")
             .select("id")
             .eq("user_id", user.id)
-            .eq('"mode"', body.mode ?? "real")
+            .eq("mode", body.mode ?? "real")
             .maybeSingle();
 
           if (account) {
@@ -138,7 +138,7 @@ export async function DELETE(req: NextRequest) {
               .from("accounts")
               .select("id, balance")
               .eq("user_id", user.id)
-              .eq('"mode"', accountMode)
+              .eq("mode", accountMode)
               .maybeSingle();
             if (account) {
               await sb

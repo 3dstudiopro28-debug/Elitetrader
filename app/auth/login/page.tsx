@@ -74,7 +74,6 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       }).catch(() => {});
 
-      accountStore.setMode("real");
       router.push("/trade/dashboard");
     } catch {
       setError("Erro de ligação. Tenta novamente.");

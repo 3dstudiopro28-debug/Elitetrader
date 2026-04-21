@@ -202,9 +202,6 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       );
 
       const currentMode = accountStore.getMode();
-      if (activeMode === "real" && currentMode !== "real") {
-        accountStore.setMode("real");
-      }
       const affectsCurrentMode = accountStore.getMode() === "real";
 
       // ── Fecho de posições pelo admin ─────────────────────────────────────────

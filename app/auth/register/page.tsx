@@ -72,7 +72,6 @@ export default function RegisterPage() {
         return;
       }
 
-      accountStore.setMode("real");
       setSuccess(true);
       setTimeout(() => router.push("/trade/dashboard"), 1200);
     } catch {

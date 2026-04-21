@@ -9,10 +9,14 @@ function keys() {
     typeof window !== "undefined"
       ? (localStorage.getItem(MODE_KEY) ?? "real")
       : "real";
+  const userId =
+    typeof window !== "undefined"
+      ? (localStorage.getItem("et_session_user_id") ?? "anon")
+      : "anon";
   return {
-    open: `et_open_positions_${m}`,
-    pending: `et_pending_orders_${m}`,
-    closed: `et_closed_positions_${m}`,
+    open: `et_open_positions_${userId}_${m}`,
+    pending: `et_pending_orders_${userId}_${m}`,
+    closed: `et_closed_positions_${userId}_${m}`,
   };
 }
 
@@ -95,7 +99,13 @@ function write<T>(key: string, data: T[]) {
 }
 
 function uid(): string {
-  return Math.random().toString(36).slice(2, 9) + Date.now().toString(36);
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export const tradeStore = {
@@ -132,6 +142,18 @@ export const tradeStore = {
     const list = this.getOpen();
     list.unshift(full);
     write(keys().open, list);
+
+    // Persistir no Supabase em background (fire-and-forget)
+    if (typeof window !== "undefined") {
+      const mode = localStorage.getItem(MODE_KEY) ?? "real";
+      fetch("/api/positions/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ...full, mode }),
+      }).catch(() => {});
+    }
+
     return full;
   },
 
