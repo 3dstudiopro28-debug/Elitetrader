@@ -820,7 +820,7 @@ function useTickPrice(
           if (isWeekend()) {
             setTickPrice(baseRef.current);
           } else if (liveRef.current) {
-            const maxDelta = spread * 0.28;
+            const maxDelta = spread * 0.35;
             setTickPrice(
               baseRef.current + (Math.random() - 0.5) * 2 * maxDelta,
             );
@@ -829,7 +829,7 @@ function useTickPrice(
           }
           schedule();
         },
-        800 + Math.random() * 400,
+        400 + Math.random() * 200,
       );
     };
     schedule();
@@ -1726,7 +1726,7 @@ function useFinnhubPrices(assets: Asset[]) {
       const patch: Record<string, number> = {};
       assets.forEach((a) => {
         if (!a.finnhubSymbol) {
-          const vol = a.basePrice * 0.0002;
+          const vol = a.basePrice * 0.0003;
           const delta = (Math.random() - 0.5) * vol;
           // Usa pricesRef (não setState updater) — evita chamar priceStore.set dentro de render
           patch[a.id] = Math.max(
@@ -1736,7 +1736,7 @@ function useFinnhubPrices(assets: Asset[]) {
         }
       });
       if (Object.keys(patch).length) update(patch);
-    }, 1500);
+    }, 900);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [update]);
@@ -2434,7 +2434,7 @@ function AssetsPageInner() {
                 isMarketDay() ||
                 liveAssetsRef.current.has(a.id);
               if (isLive) {
-                const maxDelta = a.spread * 0.28;
+                const maxDelta = a.spread * 0.35;
                 next[a.id] = base + (Math.random() - 0.5) * 2 * maxDelta;
               } else {
                 next[a.id] = base; // estático quando fechado
@@ -2444,7 +2444,7 @@ function AssetsPageInner() {
           });
           schedule();
         },
-        800 + Math.random() * 400,
+        400 + Math.random() * 200,
       );
     };
     schedule();

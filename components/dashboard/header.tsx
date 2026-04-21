@@ -654,12 +654,12 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         // O poll Finnhub sobrepõe quando há cotação real.
         patch[pos.assetId] = Math.max(
           base * 0.1,
-          base + (Math.random() - 0.5) * vol * 0.04,
+          base + (Math.random() - 0.5) * vol * 0.06,
         );
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);
-    }, 1200);
+    }, 700);
     return () => clearInterval(iv);
   }, []);
 
