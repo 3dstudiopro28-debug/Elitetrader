@@ -323,7 +323,7 @@ const ASSETS: Asset[] = [
     symbol: "XAUUSD",
     name: "Ouro vs Dolar americano",
     category: ["metals", "popular", "mostTraded", "commodities"],
-    basePrice: 3310.0,
+    basePrice: 4700.0,
     spread: 10,
     leverage: 20,
     digits: 2,
