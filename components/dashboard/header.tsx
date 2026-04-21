@@ -351,8 +351,8 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         ),
       );
     });
-    // Poll agressivo para manter números do header/saldo sempre vivos.
-    const iv = setInterval(syncUserStats, 3500);
+    // Poll mais frequente para manter números do header/saldo no mesmo ritmo visual.
+    const iv = setInterval(syncUserStats, 1200);
     return () => {
       u1();
       u2();
@@ -659,7 +659,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);
-    }, 650);
+    }, 450);
     return () => clearInterval(iv);
   }, []);
 
@@ -782,7 +782,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       <StatCell
         label={t.dashboard.pnl}
         value={s ? `${pnlPos ? "+" : "-"}$${fmt(Math.abs(s.pnl))}` : "—"}
-        valueClass={pnlPos ? undefined : "text-red-400"}
+        valueClass={pnlPos ? "text-green-400" : "text-red-400"}
       />
       <StatCell
         label={t.dashboard.marginLevel}
