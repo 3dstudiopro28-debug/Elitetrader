@@ -324,7 +324,7 @@ const ASSETS: Asset[] = [
     name: "Ouro vs Dolar americano",
     category: ["metals", "popular", "mostTraded", "commodities"],
     basePrice: 3310.0,
-    spread: 0.1,
+    spread: 0.35,
     leverage: 20,
     digits: 2,
     icon: "🥇",
