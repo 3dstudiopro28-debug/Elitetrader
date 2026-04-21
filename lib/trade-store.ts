@@ -146,12 +146,20 @@ export const tradeStore = {
     // Persistir no Supabase em background (fire-and-forget)
     if (typeof window !== "undefined") {
       const mode = localStorage.getItem(MODE_KEY) ?? "real";
-      fetch("/api/positions/open", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ ...full, mode }),
-      }).catch(() => {});
+      import("@/lib/supabase").then(({ supabase }) => {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (!session?.access_token) return;
+          fetch("/api/positions/open", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            credentials: "include",
+            body: JSON.stringify({ ...full, mode }),
+          }).catch(() => {});
+        });
+      });
     }
 
     return full;
@@ -215,21 +223,28 @@ export const tradeStore = {
     write(keys().closed, closedList);
 
     // Persistir no Supabase em background (fire-and-forget)
-    // O cookie de sessão é enviado automaticamente pelo browser
     if (typeof window !== "undefined") {
       const mode = localStorage.getItem(MODE_KEY) ?? "real";
-      fetch("/api/positions/open", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          positionId: pos.id,
-          closePrice,
-          pnl,
-          closeReason: reason,
-          mode,
-        }),
-      }).catch(() => {}); // falha silenciosa — localStorage é a fonte primária
+      import("@/lib/supabase").then(({ supabase }) => {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (!session?.access_token) return;
+          fetch("/api/positions/open", {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              positionId: pos.id,
+              closePrice,
+              pnl,
+              closeReason: reason,
+              mode,
+            }),
+          }).catch(() => {}); // falha silenciosa — localStorage é a fonte primária
+        });
+      });
     }
   },
 
