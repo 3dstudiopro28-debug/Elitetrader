@@ -27,12 +27,21 @@ export async function GET(req: NextRequest) {
     } = await sb.auth.getUser(token);
     if (authErr || !user) return NextResponse.json({ success: true, data: [] });
 
-    const { data: positions } = await sb
+    // Filtrar por modo se fornecido na query string (?mode=demo|real)
+    const mode = req.nextUrl.searchParams.get("mode");
+
+    let query = sb
       .from("positions")
-      .select("*")
+      .select("*, accounts!inner(mode)")
       .eq("user_id", user.id)
       .eq("status", "open")
       .order("opened_at", { ascending: false });
+
+    if (mode === "demo" || mode === "real") {
+      query = query.eq("accounts.mode", mode);
+    }
+
+    const { data: positions } = await query;
 
     return NextResponse.json({ success: true, data: positions ?? [] });
   } catch {
@@ -69,12 +78,29 @@ export async function POST(req: NextRequest) {
           error: authErr,
         } = await sb.auth.getUser(token);
         if (!authErr && user) {
-          const { data: account } = await sb
+          const posMode = body.mode ?? "real";
+          let { data: account } = await sb
             .from("accounts")
             .select("id")
             .eq("user_id", user.id)
-            .eq("mode", body.mode ?? "real")
+            .eq("mode", posMode)
             .maybeSingle();
+
+          // Se a conta não existe, criá-la automaticamente
+          if (!account) {
+            const { data: newAccount } = await sb
+              .from("accounts")
+              .insert({
+                user_id: user.id,
+                mode: posMode,
+                balance: posMode === "demo" ? 100_000 : 0,
+                leverage: 200,
+                currency: "USD",
+              })
+              .select("id")
+              .single();
+            account = newAccount;
+          }
 
           if (account) {
             await sb.from("positions").upsert(

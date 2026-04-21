@@ -66,13 +66,17 @@ export default function DashboardLayout({
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        // Limpar todos os dados ET ao terminar sessão para que o próximo
-        // utilizador não herde posições/histórico/epoch desta sessão.
+        // Preservar o modo (demo/real) para o próximo login, apagar o resto.
         try {
-          const keys = Object.keys(localStorage).filter((k) =>
-            k.startsWith("et_"),
+          const savedMode = localStorage.getItem("et_account_mode");
+          const keysToRemove = Object.keys(localStorage).filter(
+            (k) => k.startsWith("et_") && k !== "et_account_mode",
           );
-          keys.forEach((k) => localStorage.removeItem(k));
+          keysToRemove.forEach((k) => localStorage.removeItem(k));
+          // Restaurar modo se existia
+          if (savedMode === "demo" || savedMode === "real") {
+            localStorage.setItem("et_account_mode", savedMode);
+          }
         } catch {
           /* ignore */
         }
@@ -110,7 +114,9 @@ export default function DashboardLayout({
         }
         const localOpen = tradeStore.getOpen();
         if (localOpen.length > 0) return; // já tem posições locais — não sobrescrever
-        const res = await fetch("/api/positions/open", {
+        // Passar o modo actual para que o servidor filtre as posições correctas
+        const currentMode = localStorage.getItem("et_account_mode") ?? "real";
+        const res = await fetch(`/api/positions/open?mode=${currentMode}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
           credentials: "include",
           cache: "no-store",
