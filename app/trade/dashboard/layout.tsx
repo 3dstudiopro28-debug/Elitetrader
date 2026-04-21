@@ -37,6 +37,11 @@ export default function DashboardLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const presenceRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const realtimePresenceRef = useRef<ReturnType<
+    typeof supabase.channel
+  > | null>(null);
+  const realtimeTrackRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -264,7 +269,7 @@ export default function DashboardLayout({
     }
 
     syncPositions();
-    const syncId = setInterval(syncPositions, 20_000);
+    const syncId = setInterval(syncPositions, 8_000);
     return () => clearInterval(syncId);
   }, [ready]);
 
@@ -310,6 +315,107 @@ export default function DashboardLayout({
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
+      }
+    };
+  }, [ready]);
+
+  // ── Presença online/offline para CRM admin ─────────────────────────────────
+  useEffect(() => {
+    if (!ready) return;
+
+    async function pingPresence(action: "ping" | "offline" = "ping") {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+
+        await fetch("/api/user/presence", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ action }),
+        });
+      } catch {
+        // silencioso
+      }
+    }
+
+    pingPresence("ping");
+    presenceRef.current = setInterval(() => pingPresence("ping"), 25_000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") pingPresence("ping");
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    const onBeforeUnload = () => {
+      try {
+        const payload = new Blob([JSON.stringify({ action: "offline" })], {
+          type: "application/json",
+        });
+        navigator.sendBeacon("/api/user/presence", payload);
+      } catch {
+        // silencioso
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (presenceRef.current) clearInterval(presenceRef.current);
+      pingPresence("offline");
+    };
+  }, [ready]);
+
+  // ── Presença em tempo real (Supabase Realtime Presence) ───────────────────
+  useEffect(() => {
+    if (!ready) return;
+
+    let cancelled = false;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user || cancelled) return;
+
+      const channel = supabase.channel("crm-presence", {
+        config: { presence: { key: user.id } },
+      });
+
+      const trackNow = async () => {
+        await channel.track({
+          userId: user.id,
+          email: user.email ?? "",
+          ts: Date.now(),
+        });
+      };
+
+      channel.subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await trackNow();
+          if (realtimeTrackRef.current) clearInterval(realtimeTrackRef.current);
+          realtimeTrackRef.current = setInterval(() => {
+            trackNow().catch(() => {
+              // silencioso
+            });
+          }, 20_000);
+        }
+      });
+
+      realtimePresenceRef.current = channel;
+    });
+
+    return () => {
+      cancelled = true;
+      if (realtimeTrackRef.current) {
+        clearInterval(realtimeTrackRef.current);
+        realtimeTrackRef.current = null;
+      }
+      if (realtimePresenceRef.current) {
+        supabase.removeChannel(realtimePresenceRef.current);
+        realtimePresenceRef.current = null;
       }
     };
   }, [ready]);

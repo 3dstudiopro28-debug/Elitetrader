@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ShieldAlert,
   Eye,
@@ -31,14 +31,15 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { adminStore } from "@/lib/admin-store";
+import { supabase } from "@/lib/supabase";
 import type { CRMUser, UserStatus, AccountMode } from "@/lib/user-store";
 import { userStore } from "@/lib/user-store";
 import { cn } from "@/lib/utils";
 
 /** Devolve o token de sessão guardado no localStorage (ou vazio). */
 function getSessionToken(): string {
-  if (typeof window === "undefined") return ""
-  return localStorage.getItem("et_admin_token") ?? ""
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem("et_admin_token") ?? "";
 }
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -52,11 +53,11 @@ async function apiFetch(path: string, opts?: RequestInit) {
   });
 }
 
-const ADMIN_KEY    = "et_admin_unlocked";
+const ADMIN_KEY = "et_admin_unlocked";
 const MAX_ATTEMPTS = 5;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Tab  = "overview" | "users" | "setup" | "admins";
+type Tab = "overview" | "users" | "setup" | "admins" | "prices";
 type Role = "superadmin" | "subadmin";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -98,13 +99,13 @@ const KYC_COLOR = {
 
 // ─── Login Screen ─────────────────────────────────────────────────────────────
 function LoginScreen({ onUnlock }: { onUnlock: (role: Role) => void }) {
-  const [email, setEmail]       = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const [attempts, setAttempts] = useState(0);
-  const [locked, setLocked]     = useState(false);
+  const [locked, setLocked] = useState(false);
 
   async function handleUnlock() {
     if (locked || loading) return;
@@ -125,7 +126,9 @@ function LoginScreen({ onUnlock }: { onUnlock: (role: Role) => void }) {
             });
             const j = await r.json().catch(() => ({}));
             if (j.token) localStorage.setItem("et_admin_token", j.token);
-          } catch { /* sem token, continua */ }
+          } catch {
+            /* sem token, continua */
+          }
           localStorage.setItem(ADMIN_KEY, "subadmin");
           localStorage.setItem("et_subadmin_user", email.trim());
           setAttempts(0);
@@ -211,16 +214,35 @@ function LoginScreen({ onUnlock }: { onUnlock: (role: Role) => void }) {
             disabled={locked}
             className="w-full px-4 pr-10 py-3 border border-border rounded-xl bg-card text-sm text-foreground outline-none focus:border-accent disabled:opacity-50"
           />
-          <button type="button" onClick={() => setShowPass((v) => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-            {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          <button
+            type="button"
+            onClick={() => setShowPass((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            {showPass ? (
+              <EyeOff className="w-4 h-4" />
+            ) : (
+              <Eye className="w-4 h-4" />
+            )}
           </button>
         </div>
 
-        {error && <p className={cn("text-xs text-center", locked ? "text-yellow-400" : "text-red-500")}>{error}</p>}
+        {error && (
+          <p
+            className={cn(
+              "text-xs text-center",
+              locked ? "text-yellow-400" : "text-red-500",
+            )}
+          >
+            {error}
+          </p>
+        )}
 
-        <button onClick={handleUnlock} disabled={locked || loading}
-          className="w-full py-3 bg-accent text-accent-foreground rounded-xl font-bold hover:bg-accent/90 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+        <button
+          onClick={handleUnlock}
+          disabled={locked || loading}
+          className="w-full py-3 bg-accent text-accent-foreground rounded-xl font-bold hover:bg-accent/90 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           {loading ? "A verificar…" : "Entrar"}
         </button>
       </div>
@@ -273,6 +295,12 @@ function UserDrawer({
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [adjustDelta, setAdjustDelta] = useState("");
+  const [balanceExplicitlySet, setBalanceExplicitlySet] = useState(false);
+  const [applyingBalance, setApplyingBalance] = useState(false);
+  const [applyBalanceMsg, setApplyBalanceMsg] = useState<{
+    type: "ok" | "err";
+    text: string;
+  } | null>(null);
   const [tab, setTab] = useState<
     "info" | "financeiro" | "overrides" | "acesso" | "stats" | "notas"
   >("info");
@@ -321,6 +349,7 @@ function UserDrawer({
 
     // ── Auto-aplicar delta pendente (se admin não clicou "Aplicar") ──────────
     let savingForm = { ...form };
+    let balanceWasSet = balanceExplicitlySet;
     const delta = parseFloat(adjustDelta);
     if (!isNaN(delta) && delta >= 0) {
       // Definir saldo directamente — não somar ao anterior
@@ -332,6 +361,7 @@ function UserDrawer({
       };
       setAdjustDelta("");
       setForm(savingForm);
+      balanceWasSet = true;
     }
 
     // ── Construir body — modo sempre real, só enviar realBalance se mudou ────
@@ -349,13 +379,14 @@ function UserDrawer({
       equityOverride: savingForm.equityOverride,
       adminNotes: savingForm.adminNotes,
     };
-    // Só incluir saldo real se foi preenchido o campo de ajuste
-    // (comparar com o valor original do utilizador, não do form local)
+    // Incluir saldo real se foi explicitamente definido via "Aplicar" ou campo de ajuste.
+    // Inclui mesmo quando o valor é igual ao anterior — garante forceEpochReset no cliente.
     const origReal = user.realBalance ?? 0;
     const newReal = savingForm.realBalance ?? 0;
-    if (newReal !== origReal) {
+    if (balanceWasSet || newReal !== origReal) {
       patchBody.realBalance = newReal;
     }
+    setBalanceExplicitlySet(false);
 
     // Persistir no Supabase via API
     try {
@@ -383,19 +414,50 @@ function UserDrawer({
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+    // Recarregar stats depois de guardar o saldo para que o CRM mostre dados actualizados
+    if ("realBalance" in patchBody) {
+      setTimeout(() => loadStats(), 1500);
+    }
   }
 
-  function handleAdjust() {
+  async function handleAdjust() {
     const newBal = parseFloat(adjustDelta);
     if (isNaN(newBal) || newBal < 0) return;
-    // Definir saldo directamente — não somar ao anterior
-    setForm((f) => ({
-      ...f,
-      balance: newBal,
-      realBalance: newBal,
-      mode: "real",
-    }));
-    setAdjustDelta("");
+    setApplyingBalance(true);
+    setApplyBalanceMsg(null);
+    try {
+      const res = await apiFetch(`/api/admin/users/${form.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ realBalance: newBal, mode: "real" }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setApplyBalanceMsg({
+          type: "err",
+          text: json.error ?? `Erro ${res.status}`,
+        });
+      } else {
+        // Actualizar form local para reflectir o novo saldo
+        setForm((f) => ({
+          ...f,
+          balance: newBal,
+          realBalance: newBal,
+          mode: "real",
+        }));
+        setAdjustDelta("");
+        setBalanceExplicitlySet(false);
+        setApplyBalanceMsg({
+          type: "ok",
+          text: `Saldo de $${newBal.toLocaleString("pt-PT", { minimumFractionDigits: 2 })} aplicado com sucesso.`,
+        });
+        // Recarregar stats para confirmar no CRM
+        setTimeout(() => loadStats(), 1500);
+        setTimeout(() => setApplyBalanceMsg(null), 5000);
+      }
+    } catch {
+      setApplyBalanceMsg({ type: "err", text: "Erro de rede" });
+    }
+    setApplyingBalance(false);
   }
 
   async function handleResetPassword() {
@@ -452,8 +514,8 @@ function UserDrawer({
         const demoAcc = allAccounts.find((a) => a.mode === "demo");
         const anyAcc = allAccounts[0];
         const memOv = d._memOverride ?? null;
-        const realBal =
-          realAcc?.balance ?? memOv?.balance ?? anyAcc?.balance ?? 0;
+        // NUNCA usar conta demo como fallback do saldo real — usa 0 se não existir conta real
+        const realBal = realAcc?.balance ?? memOv?.balance ?? 0;
         setStatsData({
           balance: realBal,
           demoBalance: demoAcc?.balance ?? 100_000,
@@ -680,14 +742,22 @@ function UserDrawer({
                   />
                   <button
                     onClick={handleAdjust}
-                    className="px-4 py-2 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:bg-accent/90 transition-colors"
+                    disabled={applyingBalance || !adjustDelta}
+                    className="px-4 py-2 bg-accent text-accent-foreground rounded-lg text-xs font-semibold hover:bg-accent/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Aplicar
+                    {applyingBalance ? "A aplicar…" : "Aplicar"}
                   </button>
                 </div>
+                {applyBalanceMsg && (
+                  <p
+                    className={`text-xs font-medium ${applyBalanceMsg.type === "ok" ? "text-green-400" : "text-red-400"}`}
+                  >
+                    {applyBalanceMsg.text}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Define o saldo da conta real do investidor. O valor
-                  reflecte-se imediatamente no dashboard do cliente.
+                  reflecte-se imediatamente no dashboard do cliente (máx. 3 s).
                 </p>
               </div>
 
@@ -1373,11 +1443,13 @@ function OverrideField({
 
 // ─── Admins Tab (sub-account management) ─────────────────────────────────────
 function AdminsTab() {
-  const [subAdmins, setSubAdmins]   = useState(() => adminStore.getAll());
-  const [newEmail, setNewEmail]   = useState("");
+  const [subAdmins, setSubAdmins] = useState(() => adminStore.getAll());
+  const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [showPass, setShowPass]     = useState(false);
-  const [msg, setMsg]               = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [showPass, setShowPass] = useState(false);
+  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(
+    null,
+  );
 
   function refresh() {
     setSubAdmins(adminStore.getAll());
@@ -1409,17 +1481,21 @@ function AdminsTab() {
         <h2 className="font-bold text-foreground text-lg">Contas Gestoras</h2>
       </div>
       <p className="text-sm text-muted-foreground">
-        Crie contas de acesso ao painel para outros gestores.
-        Estas contas têm acesso completo ao CRM, mas não podem criar ou apagar outras contas gestoras
-        nem apagar a conta de nenhum utilizador.
+        Crie contas de acesso ao painel para outros gestores. Estas contas têm
+        acesso completo ao CRM, mas não podem criar ou apagar outras contas
+        gestoras nem apagar a conta de nenhum utilizador.
       </p>
 
       {/* Create form */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-        <p className="text-sm font-semibold text-foreground">Nova conta gestora</p>
+        <p className="text-sm font-semibold text-foreground">
+          Nova conta gestora
+        </p>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">E-mail do gestor</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              E-mail do gestor
+            </label>
             <input
               type="email"
               value={newEmail}
@@ -1429,7 +1505,9 @@ function AdminsTab() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Senha</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              Senha
+            </label>
             <div className="relative">
               <input
                 type={showPass ? "text" : "password"}
@@ -1443,7 +1521,11 @@ function AdminsTab() {
                 onClick={() => setShowPass((v) => !v)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                {showPass ? (
+                  <EyeOff className="w-3.5 h-3.5" />
+                ) : (
+                  <Eye className="w-3.5 h-3.5" />
+                )}
               </button>
             </div>
           </div>
@@ -1484,8 +1566,12 @@ function AdminsTab() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-muted/20">
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Utilizador</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Criado em</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">
+                  Utilizador
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">
+                  Criado em
+                </th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -1497,11 +1583,17 @@ function AdminsTab() {
                       <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center text-accent font-bold text-xs">
                         {a.email[0]?.toUpperCase() ?? "?"}
                       </div>
-                      <span className="text-sm font-medium text-foreground">{a.email}</span>
+                      <span className="text-sm font-medium text-foreground">
+                        {a.email}
+                      </span>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
-                    {new Date(a.createdAt).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })}
+                    {new Date(a.createdAt).toLocaleDateString("pt-PT", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
@@ -1830,6 +1922,187 @@ function SetupTab() {
   );
 }
 
+// ─── Prices Tab — override de preço do Ouro (XAUUSD) ─────────────────────────
+function PricesTab() {
+  const [currentOverride, setCurrentOverride] = useState<number | null>(null);
+  const [inputValue, setInputValue] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  async function readJsonSafe(r: Response): Promise<Record<string, unknown>> {
+    const text = await r.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+
+  // Carregar override actual ao montar
+  useEffect(() => {
+    apiFetch("/api/admin/prices")
+      .then((r) => readJsonSafe(r))
+      .then((j) => {
+        const v = j.prices?.xauusd ?? null;
+        setCurrentOverride(v);
+        if (v !== null) setInputValue(String(v));
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleApply() {
+    const price = parseFloat(inputValue);
+    if (!inputValue || isNaN(price) || price <= 0) {
+      setMsg({ text: "Insira um preço válido (ex: 4600)", ok: false });
+      return;
+    }
+    setLoading(true);
+    setMsg(null);
+    try {
+      const r = await apiFetch("/api/admin/prices", {
+        method: "POST",
+        body: JSON.stringify({ assetId: "xauusd", price }),
+      });
+      const j = await readJsonSafe(r);
+      if (r.ok && j.success) {
+        setCurrentOverride(price);
+        setMsg({
+          text: `Preço do Ouro definido para $${price.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          ok: true,
+        });
+      } else {
+        setMsg({
+          text: String(j.error ?? `Erro ao aplicar (HTTP ${r.status})`),
+          ok: false,
+        });
+      }
+    } catch {
+      setMsg({ text: "Erro de ligação", ok: false });
+    }
+    setLoading(false);
+  }
+
+  async function handleRemove() {
+    setLoading(true);
+    setMsg(null);
+    try {
+      const r = await apiFetch("/api/admin/prices", {
+        method: "DELETE",
+        body: JSON.stringify({ assetId: "xauusd" }),
+      });
+      const j = await readJsonSafe(r);
+      if (r.ok && j.success) {
+        setCurrentOverride(null);
+        setInputValue("");
+        setMsg({
+          text: "Override removido. Ouro volta ao preço de mercado.",
+          ok: true,
+        });
+      } else {
+        setMsg({
+          text: String(j.error ?? `Erro ao remover (HTTP ${r.status})`),
+          ok: false,
+        });
+      }
+    } catch {
+      setMsg({ text: "Erro de ligação", ok: false });
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div className="p-6 max-w-lg space-y-6">
+      <div>
+        <h2 className="text-lg font-bold text-foreground mb-1">
+          Preço do Ouro (XAUUSD)
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Define o preço base exibido na plataforma. O preço continua a flutuar
+          ±0.03% em redor do valor definido. Quando ativo, o Finnhub é ignorado
+          para o Ouro.
+        </p>
+      </div>
+
+      <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-foreground">
+            Override actual
+          </span>
+          <span
+            className={cn(
+              "text-sm font-bold tabular-nums",
+              currentOverride !== null
+                ? "text-green-400"
+                : "text-muted-foreground",
+            )}
+          >
+            {currentOverride !== null
+              ? `$${currentOverride.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : "Preço de mercado (sem override)"}
+          </span>
+        </div>
+
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+              $
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleApply()}
+              placeholder="ex: 4600.00"
+              className="w-full pl-7 pr-4 py-2.5 border border-border rounded-xl bg-background text-sm text-foreground outline-none focus:border-accent"
+            />
+          </div>
+          <button
+            onClick={handleApply}
+            disabled={loading}
+            className="px-4 py-2.5 bg-accent text-white rounded-xl text-sm font-semibold hover:bg-accent/90 transition-colors disabled:opacity-50"
+          >
+            {loading ? "…" : "Aplicar"}
+          </button>
+          {currentOverride !== null && (
+            <button
+              onClick={handleRemove}
+              disabled={loading}
+              className="px-4 py-2.5 border border-border rounded-xl text-sm text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+            >
+              Remover
+            </button>
+          )}
+        </div>
+
+        {msg && (
+          <p
+            className={cn(
+              "text-xs font-medium",
+              msg.ok ? "text-green-400" : "text-red-400",
+            )}
+          >
+            {msg.text}
+          </p>
+        )}
+      </div>
+
+      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+        <p className="text-xs text-yellow-400 font-medium">
+          ⚠️ Nota importante
+        </p>
+        <p className="text-xs text-yellow-400/80 mt-1">
+          Este override é guardado em memória do servidor. Reiniciar o servidor
+          limpa o override (pode reaplicar). Os utilizadores verão o novo preço
+          na próxima actualização (máx. 5s).
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [unlocked, setUnlocked] = useState(false);
@@ -1844,6 +2117,10 @@ export default function AdminPage() {
   const [filterStatus, setFilterStatus] = useState<string>("");
   const [filterMode, setFilterMode] = useState<string>("");
   const [selectedUser, setSelectedUser] = useState<CRMUser | null>(null);
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
+  const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(
+    null,
+  );
 
   const refreshUsers = useCallback(async () => {
     setLoading(true);
@@ -1870,7 +2147,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem(ADMIN_KEY);
-      const token  = localStorage.getItem("et_admin_token");
+      const token = localStorage.getItem("et_admin_token");
       if (token && (stored === "superadmin" || stored === "subadmin")) {
         setRole(stored as Role);
         setUnlocked(true);
@@ -1878,6 +2155,50 @@ export default function AdminPage() {
       }
     }
   }, [refreshUsers]);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    const id = setInterval(() => {
+      refreshUsers();
+    }, 12_000);
+    return () => clearInterval(id);
+  }, [unlocked, refreshUsers]);
+
+  useEffect(() => {
+    if (!unlocked) return;
+
+    const channel = supabase.channel("crm-presence", {
+      config: { presence: { key: `admin-${role}-${Date.now()}` } },
+    });
+
+    const updatePresence = () => {
+      const state = channel.presenceState();
+      const ids = new Set<string>();
+      for (const key of Object.keys(state)) ids.add(key);
+      setOnlineUserIds(ids);
+    };
+
+    channel
+      .on("presence", { event: "sync" }, updatePresence)
+      .on("presence", { event: "join" }, updatePresence)
+      .on("presence", { event: "leave" }, updatePresence)
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ role, ts: Date.now() });
+          updatePresence();
+        }
+      });
+
+    presenceChannelRef.current = channel;
+
+    return () => {
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current);
+        presenceChannelRef.current = null;
+      }
+      setOnlineUserIds(new Set());
+    };
+  }, [unlocked, role]);
 
   function handleUnlock(r: Role) {
     setRole(r);
@@ -1894,7 +2215,9 @@ export default function AdminPage() {
   async function handleDeleteUser(id: string) {
     // O índice 0 da lista ordenada por data de criação é a conta mestra \u2014 nunca apagar
     const sorted = [...users].sort(
-      (a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
+      (a, b) =>
+        new Date(a.createdAt ?? 0).getTime() -
+        new Date(b.createdAt ?? 0).getTime(),
     );
     if (sorted[0]?.id === id) {
       alert("A conta principal não pode ser eliminada.");
@@ -2010,6 +2333,18 @@ export default function AdminPage() {
             <ShieldCheck className="w-4 h-4" /> Gestores
           </button>
         )}
+        {/* Preços — visível a todos os admins */}
+        <button
+          onClick={() => setActiveTab("prices")}
+          className={cn(
+            "flex items-center gap-2 py-3 px-1 mr-6 text-sm font-medium border-b-2 transition-colors",
+            activeTab === "prices"
+              ? "border-accent text-accent"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <TrendingUp className="w-4 h-4" /> Preços
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -2206,73 +2541,102 @@ export default function AdminPage() {
                         </td>
                       </tr>
                     )}
-                    {filtered.map((u) => (
-                      <tr
-                        key={u.id}
-                        className="hover:bg-muted/20 transition-colors cursor-pointer"
-                        onClick={() => setSelectedUser(u)}
-                      >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center text-accent font-bold text-xs shrink-0">
-                              {(u.firstName[0] ?? u.email[0]).toUpperCase()}
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-foreground leading-none">
-                                {u.firstName} {u.lastName}
+                    {filtered.map((u) =>
+                      // Presença realtime tem prioridade sobre fallback da API.
+                      // Isso evita falsos "offline" quando o store em memória do servidor diverge.
+                      (() => {
+                        const isOnline =
+                          onlineUserIds.has(u.id) ||
+                          u.presenceStatus === "online";
+                        return (
+                          <tr
+                            key={u.id}
+                            className="hover:bg-muted/20 transition-colors cursor-pointer"
+                            onClick={() => setSelectedUser(u)}
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center text-accent font-bold text-xs shrink-0">
+                                  {(u.firstName[0] ?? u.email[0]).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="text-sm font-medium text-foreground leading-none">
+                                    {u.firstName} {u.lastName}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground mt-0.5">
+                                    {u.email}
+                                  </div>
+                                  <div className="mt-1 flex items-center gap-1.5">
+                                    <span
+                                      className={cn(
+                                        "inline-block h-1.5 w-1.5 rounded-full",
+                                        isOnline
+                                          ? "bg-green-400"
+                                          : "bg-zinc-500",
+                                      )}
+                                    />
+                                    <span
+                                      className={cn(
+                                        "text-[10px] font-medium uppercase tracking-wide",
+                                        isOnline
+                                          ? "text-green-400"
+                                          : "text-zinc-400",
+                                      )}
+                                    >
+                                      {isOnline ? "Online" : "Offline"}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground mt-0.5">
-                                {u.email}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">
-                          {u.country || "—"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              "px-2 py-0.5 rounded text-xs font-semibold uppercase",
-                              u.mode === "demo"
-                                ? "bg-blue-500/10 text-blue-400"
-                                : "bg-green-500/10 text-green-400",
-                            )}
-                          >
-                            {u.mode}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              "px-2 py-0.5 rounded-full text-xs font-medium border",
-                              STATUS_COLOR[u.status],
-                            )}
-                          >
-                            {STATUS_LABEL[u.status]}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm font-medium text-foreground">
-                          {"$" + fmt(u.balance)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              "text-xs font-medium",
-                              KYC_COLOR[u.kycStatus],
-                            )}
-                          >
-                            {KYC_LABEL[u.kycStatus]}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">
-                          {fmtDate(u.createdAt)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                        </td>
-                      </tr>
-                    ))}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-muted-foreground">
+                              {u.country || "—"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={cn(
+                                  "px-2 py-0.5 rounded text-xs font-semibold uppercase",
+                                  u.mode === "demo"
+                                    ? "bg-blue-500/10 text-blue-400"
+                                    : "bg-green-500/10 text-green-400",
+                                )}
+                              >
+                                {u.mode}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={cn(
+                                  "px-2 py-0.5 rounded-full text-xs font-medium border",
+                                  STATUS_COLOR[u.status],
+                                )}
+                              >
+                                {STATUS_LABEL[u.status]}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm font-medium text-foreground">
+                              {"$" + fmt(u.balance)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={cn(
+                                  "text-xs font-medium",
+                                  KYC_COLOR[u.kycStatus],
+                                )}
+                              >
+                                {KYC_LABEL[u.kycStatus]}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground">
+                              {fmtDate(u.createdAt)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                            </td>
+                          </tr>
+                        );
+                      })(),
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -2284,9 +2648,10 @@ export default function AdminPage() {
         {activeTab === "setup" && <SetupTab />}
 
         {/* ── Gestores (sub-admins) — apenas conta mestra ── */}
-        {activeTab === "admins" && isSuperAdmin && (
-          <AdminsTab />
-        )}
+        {activeTab === "admins" && isSuperAdmin && <AdminsTab />}
+
+        {/* ── Preços ── */}
+        {activeTab === "prices" && <PricesTab />}
       </div>
 
       {/* User Edit Drawer */}

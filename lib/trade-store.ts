@@ -7,8 +7,8 @@ const EVENT_NAME = "et-trade-update";
 function keys() {
   const m =
     typeof window !== "undefined"
-      ? (localStorage.getItem(MODE_KEY) ?? "demo")
-      : "demo";
+      ? (localStorage.getItem(MODE_KEY) ?? "real")
+      : "real";
   return {
     open: `et_open_positions_${m}`,
     pending: `et_pending_orders_${m}`,
@@ -71,7 +71,12 @@ export interface ClosedPosition {
   pnlPct: number;
   openedAt: string;
   closedAt: string;
-  closeReason: "manual" | "take_profit" | "stop_loss" | "margin_call" | "adjustment";
+  closeReason:
+    | "manual"
+    | "take_profit"
+    | "stop_loss"
+    | "margin_call"
+    | "adjustment";
 }
 
 function read<T>(key: string): T[] {
@@ -190,7 +195,7 @@ export const tradeStore = {
     // Persistir no Supabase em background (fire-and-forget)
     // O cookie de sessão é enviado automaticamente pelo browser
     if (typeof window !== "undefined") {
-      const mode = localStorage.getItem(MODE_KEY) ?? "demo";
+      const mode = localStorage.getItem(MODE_KEY) ?? "real";
       fetch("/api/positions/open", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -290,7 +295,9 @@ export const tradeStore = {
       pnlPct: amount > 0 ? (pnl / amount) * 100 : 0,
       openedAt: (row.opened_at as string) ?? new Date().toISOString(),
       closedAt: (row.closed_at as string) ?? new Date().toISOString(),
-      closeReason: ((row.close_reason as string) === "adjustment" ? "adjustment" : "manual") as ClosedPosition["closeReason"],
+      closeReason: ((row.close_reason as string) === "adjustment"
+        ? "adjustment"
+        : "manual") as ClosedPosition["closeReason"],
     };
 
     existing.unshift(closed);
@@ -305,18 +312,38 @@ export const tradeStore = {
   initOpenFromRemote(rows: Record<string, unknown>[]) {
     if (typeof window === "undefined") return;
     const iconMap: Record<string, string> = {
-      EURUSD: "🇪🇺", EURGBP: "€£", GBPUSD: "🇬🇧", USDJPY: "💴",
-      USDCHF: "🇨🇭", AUDUSD: "🇦🇺", USDCAD: "🇨🇦", NZDUSD: "🇳🇿",
-      EURJPY: "🇪🇺", XAUUSD: "🥇", XAGUSD: "🥈", BTCUSD: "₿",
-      ETHUSD: "Ξ", SOLUSD: "◎", AAPL: "🍎", TSLA: "⚡", NVDA: "🟢",
-      AMZN: "📦", MSFT: "🪟", META: "🔵", GOOGL: "🔍", NFLX: "🎬",
+      EURUSD: "🇪🇺",
+      EURGBP: "€£",
+      GBPUSD: "🇬🇧",
+      USDJPY: "💴",
+      USDCHF: "🇨🇭",
+      AUDUSD: "🇦🇺",
+      USDCAD: "🇨🇦",
+      NZDUSD: "🇳🇿",
+      EURJPY: "🇪🇺",
+      XAUUSD: "🥇",
+      XAGUSD: "🥈",
+      BTCUSD: "₿",
+      ETHUSD: "Ξ",
+      SOLUSD: "◎",
+      AAPL: "🍎",
+      TSLA: "⚡",
+      NVDA: "🟢",
+      AMZN: "📦",
+      MSFT: "🪟",
+      META: "🔵",
+      GOOGL: "🔍",
+      NFLX: "🎬",
     };
     const positions: OpenPosition[] = rows
-      .filter(row => row.status === "open")
-      .map(row => {
+      .filter((row) => row.status === "open")
+      .map((row) => {
         const symbol = String(row.symbol || "");
         const openPrice = parseFloat(String(row.open_price ?? 1));
-        const decimals = Math.max((openPrice.toString().split(".")[1] ?? "").length, 2);
+        const decimals = Math.max(
+          (openPrice.toString().split(".")[1] ?? "").length,
+          2,
+        );
         return {
           id: String(row.id),
           assetId: symbol.toLowerCase(),
@@ -331,8 +358,12 @@ export const tradeStore = {
           leverage: parseInt(String(row.leverage ?? 1)),
           openPrice,
           spread: parseFloat(String(row.spread ?? 0)),
-          stopLoss: row.stop_loss != null ? parseFloat(String(row.stop_loss)) : null,
-          takeProfit: row.take_profit != null ? parseFloat(String(row.take_profit)) : null,
+          stopLoss:
+            row.stop_loss != null ? parseFloat(String(row.stop_loss)) : null,
+          takeProfit:
+            row.take_profit != null
+              ? parseFloat(String(row.take_profit))
+              : null,
           openedAt: String(row.opened_at ?? new Date().toISOString()),
         };
       });
@@ -488,6 +519,74 @@ export const tradeStore = {
       (a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime(),
     );
     write(keys().closed, merged);
+  },
+
+  /**
+   * Fecha múltiplas posições em batch com um único CustomEvent.
+   * Evita re-renders intermédios que causam oscilação visual do saldo.
+   * Retorna o realizedPnl total após os fechos.
+   */
+  closeBatch(
+    closures: Array<{
+      id: string;
+      closePrice: number;
+      pnl: number;
+      closedAt: string;
+      closeReason: string;
+    }>,
+  ): number {
+    if (typeof window === "undefined") return 0;
+    const k = keys();
+    const open = read<OpenPosition>(k.open);
+    const closedList = read<ClosedPosition>(k.closed);
+
+    for (const c of closures) {
+      const idx = open.findIndex((p) => p.id === c.id);
+      if (idx < 0) continue;
+      const pos = open[idx];
+      const pnlPct = pos.amount > 0 ? (c.pnl / pos.amount) * 100 : 0;
+      const reason: ClosedPosition["closeReason"] =
+        c.closeReason === "take_profit"
+          ? "take_profit"
+          : c.closeReason === "stop_loss"
+            ? "stop_loss"
+            : c.closeReason === "margin_call"
+              ? "margin_call"
+              : c.closeReason === "adjustment"
+                ? "adjustment"
+                : "manual";
+
+      closedList.unshift({
+        id: pos.id,
+        assetId: pos.assetId,
+        symbol: pos.symbol,
+        name: pos.name,
+        icon: pos.icon,
+        digits: pos.digits,
+        type: pos.type,
+        lots: pos.lots,
+        amount: pos.amount,
+        leverage: pos.leverage,
+        openPrice: pos.openPrice,
+        closePrice: c.closePrice,
+        pnl: c.pnl,
+        pnlPct,
+        openedAt: pos.openedAt,
+        closedAt: c.closedAt,
+        closeReason: reason,
+      });
+      open.splice(idx, 1);
+    }
+
+    // Escrever ambos os arrays sem dispatch individual
+    if (typeof window !== "undefined") {
+      localStorage.setItem(k.open, JSON.stringify(open));
+      localStorage.setItem(k.closed, JSON.stringify(closedList));
+      // Um único evento para todos os fechos
+      window.dispatchEvent(new CustomEvent(EVENT_NAME));
+    }
+
+    return closedList.reduce((s, p) => s + p.pnl, 0);
   },
 
   /** Wipe all data for the current mode */

@@ -544,7 +544,10 @@ function ClosedPositionsTab({
   onFilterFrom: (v: string) => void;
   onFilterTo: (v: string) => void;
 }) {
-  const totalPnl = positions.reduce((acc, p) => acc + p.pnl, 0);
+  // Soma apenas trades manuais do utilizador (excluir ghost/adjustment)
+  const totalPnl = positions
+    .filter(p => p.closeReason !== "adjustment")
+    .reduce((acc, p) => acc + p.pnl, 0);
 
   return (
     <div>
@@ -777,7 +780,11 @@ export default function PortfolioPage() {
     return acc + pnl;
   }, 0);
 
-  const realizedPnl = closed.reduce((acc, p) => acc + p.pnl, 0);
+  // P&L Realizado: apenas trades manuais do utilizador.
+  // Ghost trades (adjustment) são excluídos — não representam operações reais do utilizador.
+  const realizedPnl = closed
+    .filter(p => p.closeReason !== "adjustment")
+    .reduce((acc, p) => acc + p.pnl, 0);
 
   // Filter closed by date
   const filteredClosed = closed.filter((pos) => {

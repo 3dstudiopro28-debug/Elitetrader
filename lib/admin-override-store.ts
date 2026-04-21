@@ -25,6 +25,8 @@ export type AdminOverrideEntry = {
   balanceOverride?: number | null
   /** Nota interna do admin */
   note?: string
+  /** Forçar recalculo de epoch no cliente (reset de saldo imediato) */
+  forceEpochReset?: boolean
   /** Timestamp de quando foi definido */
   setAt: number
 }
@@ -54,11 +56,11 @@ export const adminOverrideStore = {
     return _store.get(userId) ?? null
   },
 
-  /** Limpar flag forceClose após o cliente fechar as posições */
+  /** Limpar flags forceClose + forceEpochReset após o cliente processar */
   clearForceClose(userId: string) {
     const entry = _store.get(userId)
     if (entry) {
-      _store.set(userId, { ...entry, forceClose: false })
+      _store.set(userId, { ...entry, forceClose: false, forceEpochReset: false })
     }
   },
 

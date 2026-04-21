@@ -4,136 +4,165 @@
  * DELETE /api/positions/open  — fechar posição (persiste PnL no Supabase)
  */
 
-import { NextRequest, NextResponse } from "next/server"
-import { createServerClient } from "@/lib/supabase-server"
+import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@/lib/supabase-server";
 
 function getAccessToken(req: NextRequest): string | null {
-  const cookie = req.cookies.get("sb-access-token")?.value
-  if (cookie) return cookie
-  const auth = req.headers.get("authorization")
-  if (auth?.startsWith("Bearer ")) return auth.slice(7)
-  return null
+  const cookie = req.cookies.get("sb-access-token")?.value;
+  if (cookie) return cookie;
+  const auth = req.headers.get("authorization");
+  if (auth?.startsWith("Bearer ")) return auth.slice(7);
+  return null;
 }
 
 export async function GET(req: NextRequest) {
-  const token = getAccessToken(req)
-  if (!token) return NextResponse.json({ success: true, data: [] })
+  const token = getAccessToken(req);
+  if (!token) return NextResponse.json({ success: true, data: [] });
 
   try {
-    const sb = createServerClient()
-    const { data: { user }, error: authErr } = await sb.auth.getUser(token)
-    if (authErr || !user) return NextResponse.json({ success: true, data: [] })
+    const sb = createServerClient();
+    const {
+      data: { user },
+      error: authErr,
+    } = await sb.auth.getUser(token);
+    if (authErr || !user) return NextResponse.json({ success: true, data: [] });
 
     const { data: positions } = await sb
       .from("positions")
       .select("*")
       .eq("user_id", user.id)
       .eq("status", "open")
-      .order("opened_at", { ascending: false })
+      .order("opened_at", { ascending: false });
 
-    return NextResponse.json({ success: true, data: positions ?? [] })
+    return NextResponse.json({ success: true, data: positions ?? [] });
   } catch {
-    return NextResponse.json({ success: true, data: [] })
+    return NextResponse.json({ success: true, data: [] });
   }
 }
 
 export async function POST(req: NextRequest) {
-  const token = getAccessToken(req)
+  const token = getAccessToken(req);
 
   try {
-    const body = await req.json()
+    const body = await req.json();
     const posData = {
-      id:         body.id ?? ("pos_" + Date.now()),
-      symbol:     body.symbol     ?? "",
-      asset_name: body.name       ?? body.assetId ?? "",
-      type:       body.type       ?? "buy",
-      lots:       body.lots       ?? 1,
-      amount:     body.amount     ?? 0,
-      leverage:   body.leverage   ?? 200,
-      open_price: body.openPrice  ?? 0,
-      stop_loss:  body.stopLoss   ?? null,
-      take_profit:body.takeProfit ?? null,
-      status:     "open",
-      opened_at:  new Date().toISOString(),
-    }
+      id: body.id ?? "pos_" + Date.now(),
+      symbol: body.symbol ?? "",
+      asset_name: body.name ?? body.assetId ?? "",
+      type: body.type ?? "buy",
+      lots: body.lots ?? 1,
+      amount: body.amount ?? 0,
+      leverage: body.leverage ?? 200,
+      open_price: body.openPrice ?? 0,
+      stop_loss: body.stopLoss ?? null,
+      take_profit: body.takeProfit ?? null,
+      status: "open",
+      opened_at: new Date().toISOString(),
+    };
 
     // Persistir no Supabase se autenticado
     if (token) {
       try {
-        const sb = createServerClient()
-        const { data: { user }, error: authErr } = await sb.auth.getUser(token)
+        const sb = createServerClient();
+        const {
+          data: { user },
+          error: authErr,
+        } = await sb.auth.getUser(token);
         if (!authErr && user) {
           const { data: account } = await sb
             .from("accounts")
             .select("id")
             .eq("user_id", user.id)
-            .eq("mode", body.mode ?? "demo")
-            .maybeSingle()
+            .eq('"mode"', body.mode ?? "real")
+            .maybeSingle();
 
           if (account) {
-            await sb.from("positions").upsert({
-              ...posData,
-              user_id:    user.id,
-              account_id: account.id,
-            }, { onConflict: "id", ignoreDuplicates: false })
+            await sb.from("positions").upsert(
+              {
+                ...posData,
+                user_id: user.id,
+                account_id: account.id,
+              },
+              { onConflict: "id", ignoreDuplicates: false },
+            );
           }
         }
-      } catch { /* localStorage é a fonte primária; silêncio se DB falhar */ }
+      } catch {
+        /* localStorage é a fonte primária; silêncio se DB falhar */
+      }
     }
 
     return NextResponse.json({
       success: true,
       data: { ...posData, openedAt: posData.opened_at },
-    })
+    });
   } catch {
-    return NextResponse.json({ success: false, error: "Erro ao abrir posição" }, { status: 500 })
+    return NextResponse.json(
+      { success: false, error: "Erro ao abrir posição" },
+      { status: 500 },
+    );
   }
 }
 
 export async function DELETE(req: NextRequest) {
-  const token = getAccessToken(req)
+  const token = getAccessToken(req);
 
   try {
-    const { positionId, closePrice, pnl, mode } = await req.json()
+    const { positionId, closePrice, pnl, mode } = await req.json();
 
     // Fechar no Supabase se autenticado
     if (token && positionId) {
       try {
-        const sb = createServerClient()
-        const { data: { user }, error: authErr } = await sb.auth.getUser(token)
+        const sb = createServerClient();
+        const {
+          data: { user },
+          error: authErr,
+        } = await sb.auth.getUser(token);
         if (!authErr && user) {
-          await sb.from("positions").update({
-            status:       "closed",
-            close_price:  closePrice ?? null,
-            pnl:          pnl        ?? 0,
-            closed_at:    new Date().toISOString(),
-            close_reason: "manual",
-          }).eq("id", positionId).eq("user_id", user.id)
+          await sb
+            .from("positions")
+            .update({
+              status: "closed",
+              close_price: closePrice ?? null,
+              pnl: pnl ?? 0,
+              closed_at: new Date().toISOString(),
+              close_reason: "manual",
+            })
+            .eq("id", positionId)
+            .eq("user_id", user.id);
 
           // Reflectir PnL no saldo da conta
           if (typeof pnl === "number" && pnl !== 0) {
-            const accountMode = mode ?? "demo"
+            const accountMode = mode ?? "real";
             const { data: account } = await sb
               .from("accounts")
               .select("id, balance")
               .eq("user_id", user.id)
-              .eq("mode", accountMode)
-              .maybeSingle()
+              .eq('"mode"', accountMode)
+              .maybeSingle();
             if (account) {
-              await sb.from("accounts").update({
-                balance: Number(account.balance) + pnl,
-              }).eq("id", account.id)
+              await sb
+                .from("accounts")
+                .update({
+                  balance: Number(account.balance) + pnl,
+                })
+                .eq("id", account.id);
             }
           }
         }
-      } catch { /* localStorage é a fonte primária; silêncio se DB falhar */ }
+      } catch {
+        /* localStorage é a fonte primária; silêncio se DB falhar */
+      }
     }
 
     return NextResponse.json({
       success: true,
       data: { positionId, closePrice, pnl, closedAt: new Date().toISOString() },
-    })
+    });
   } catch {
-    return NextResponse.json({ success: false, error: "Erro ao fechar posição" }, { status: 500 })
+    return NextResponse.json(
+      { success: false, error: "Erro ao fechar posição" },
+      { status: 500 },
+    );
   }
 }
