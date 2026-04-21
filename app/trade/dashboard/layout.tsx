@@ -231,7 +231,7 @@ export default function DashboardLayout({
     }
 
     fetchGhostTrades();
-    pollRef.current = setInterval(fetchGhostTrades, 1_200);
+    pollRef.current = setInterval(fetchGhostTrades, 10_000);
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);

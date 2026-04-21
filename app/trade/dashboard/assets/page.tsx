@@ -820,7 +820,7 @@ function useTickPrice(
           if (isWeekend()) {
             setTickPrice(baseRef.current);
           } else if (liveRef.current) {
-            const maxDelta = spread * 0.9;
+            const maxDelta = spread * 0.05;
             setTickPrice(
               baseRef.current + (Math.random() - 0.5) * 2 * maxDelta,
             );
@@ -829,7 +829,7 @@ function useTickPrice(
           }
           schedule();
         },
-        50 + Math.random() * 40,
+        5000 + Math.random() * 3000,
       );
     };
     schedule();
@@ -888,7 +888,7 @@ function useTickPrice(
     }
 
     syncGoldQuote();
-    const id = setInterval(syncGoldQuote, 1_200);
+    const id = setInterval(syncGoldQuote, 15_000);
     return () => {
       dead = true;
       clearInterval(id);

@@ -232,13 +232,13 @@ export default function DashboardPage() {
       return next;
     });
     setFlashes(nextFlashes);
-    setTimeout(() => setFlashes({}), 320);
+    setTimeout(() => setFlashes({}), 2000);
   }, []);
 
   useEffect(() => {
     // Arrancar simulação imediatamente para ter valores não-zero
     tick();
-    const id = setInterval(tick, 700);
+    const id = setInterval(tick, 8000);
     return () => clearInterval(id);
   }, [tick]);
 
