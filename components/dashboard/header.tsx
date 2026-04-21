@@ -351,8 +351,8 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         ),
       );
     });
-    // Poll mais frequente para manter números do header/saldo no mesmo ritmo visual.
-    const iv = setInterval(syncUserStats, 1200);
+    // Poll levemente mais lento para suavizar atualização de patrimônio/margens.
+    const iv = setInterval(syncUserStats, 1500);
     return () => {
       u1();
       u2();
@@ -659,7 +659,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);
-    }, 450);
+    }, 550);
     return () => clearInterval(iv);
   }, []);
 
