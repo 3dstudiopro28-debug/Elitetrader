@@ -2470,14 +2470,30 @@ function AssetsPageInner() {
     Object.fromEntries(ASSETS.map((a) => [a.id, 0])),
   );
   useEffect(() => {
+    // Oscilação suave e lenta para a coluna "Alterar 1D".
+    // Mantém variações pequenas e menos frequentes que saldo/margens.
     setChanges(
       Object.fromEntries(
-        ASSETS.map((a) => [
-          a.id,
-          parseFloat((Math.random() * 4 - 2).toFixed(2)),
-        ]),
+        ASSETS.map((a) => [a.id, parseFloat((Math.random() * 1.2 - 0.6).toFixed(2))]),
       ),
     );
+
+    const id = setInterval(() => {
+      setChanges((prev) => {
+        const next: Record<string, number> = {};
+        ASSETS.forEach((a) => {
+          const current = prev[a.id] ?? 0;
+          const step = (Math.random() - 0.5) * 0.12; // ~±0.06 por atualização
+          const drift = current + step;
+          // Evita extremos e mantém visual realista na lista
+          const bounded = Math.max(-2.5, Math.min(2.5, drift));
+          next[a.id] = parseFloat(bounded.toFixed(2));
+        });
+        return next;
+      });
+    }, 2500);
+
+    return () => clearInterval(id);
   }, []);
 
   const toggleFavorite = useCallback((id: string, e: React.MouseEvent) => {
