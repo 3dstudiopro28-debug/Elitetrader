@@ -20,28 +20,44 @@ export async function GET(req: NextRequest) {
   if (!token) return NextResponse.json({ success: true, data: [] });
 
   try {
-    const sb = createServerClient();
+    const sb = createServerClient(token);
     const {
       data: { user },
       error: authErr,
     } = await sb.auth.getUser(token);
     if (authErr || !user) return NextResponse.json({ success: true, data: [] });
 
-    // Filtrar por modo se fornecido na query string (?mode=demo|real)
     const mode = req.nextUrl.searchParams.get("mode");
 
-    let query = sb
+    if (mode === "demo" || mode === "real") {
+      // Passo 1: encontrar a conta pelo modo
+      const { data: account } = await sb
+        .from("accounts")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("mode", mode)
+        .maybeSingle();
+
+      if (!account) return NextResponse.json({ success: true, data: [] });
+
+      // Passo 2: posições desta conta
+      const { data: positions } = await sb
+        .from("positions")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("account_id", account.id)
+        .eq("status", "open")
+        .order("opened_at", { ascending: false });
+
+      return NextResponse.json({ success: true, data: positions ?? [] });
+    }
+
+    const { data: positions } = await sb
       .from("positions")
-      .select("*, accounts!inner(mode)")
+      .select("*")
       .eq("user_id", user.id)
       .eq("status", "open")
       .order("opened_at", { ascending: false });
-
-    if (mode === "demo" || mode === "real") {
-      query = query.eq("accounts.mode", mode);
-    }
-
-    const { data: positions } = await query;
 
     return NextResponse.json({ success: true, data: positions ?? [] });
   } catch {
@@ -72,7 +88,7 @@ export async function POST(req: NextRequest) {
     // Persistir no Supabase se autenticado
     if (token) {
       try {
-        const sb = createServerClient();
+        const sb = createServerClient(token);
         const {
           data: { user },
           error: authErr,
@@ -139,7 +155,7 @@ export async function DELETE(req: NextRequest) {
     // Fechar no Supabase se autenticado
     if (token && positionId) {
       try {
-        const sb = createServerClient();
+        const sb = createServerClient(token);
         const {
           data: { user },
           error: authErr,
