@@ -12,7 +12,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const unauth = await requireAdmin(req)
+  const unauth = requireAdmin(req)
   if (unauth) return unauth
 
   const { id } = await params;

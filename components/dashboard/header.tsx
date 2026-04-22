@@ -66,13 +66,6 @@ function fmt(n: number) {
   });
 }
 
-function askReauth(): boolean {
-  if (typeof window === "undefined") return true;
-  return window.confirm(
-    "A sessão parece expirada. Deseja ir para a página de login agora?",
-  );
-}
-
 const SUPPORTED_LANGUAGES = [
   { code: "en" as const, label: "English", flag: "🇬🇧" },
   { code: "ar" as const, label: "العربية", flag: "🇸🇦" },
@@ -164,8 +157,12 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       marginLevelOverride: number | null,
       forceClosePositions: boolean,
       activeMode: string | null,
-      forceEpochReset: boolean,
     ) => {
+      // Conta demo: inicializar a 100k APENAS na primeira vez (sem localStorage).
+      if (accountStore.getDBBalance("demo") === null) {
+        accountStore.setDBBalance(demoBalance, "demo");
+      }
+
       const prevRealBalance = accountStore.getDBBalance("real");
       const newRealBalance = realBalance;
 
@@ -175,27 +172,17 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       const shouldUpdateBalance =
         newRealBalance > 0 || prevRealBalance === null;
 
-      // Calcular epoch se:
-      //   a) saldo mudou (novo valor diferente do anterior), OU
-      //   b) admin forçou reset de epoch (mesmo valor re-aplicado)
-      // Apenas trades não-adjustment (trades do utilizador) contribuem para o epoch.
+      // Calcular epoch só se o saldo mudou
       let newEpoch = accountStore.getBalanceEpoch();
-      const balanceChanged =
-        prevRealBalance === null || prevRealBalance !== newRealBalance;
-      if (shouldUpdateBalance && (balanceChanged || forceEpochReset)) {
-        newEpoch = tradeStore
-          .getClosed()
-          .filter((p) => p.closeReason !== "adjustment")
-          .reduce((s, p) => s + p.pnl, 0);
+      if (shouldUpdateBalance && (prevRealBalance === null || prevRealBalance !== newRealBalance)) {
+        newEpoch = tradeStore.getClosed().reduce((s, p) => s + p.pnl, 0);
       }
 
-      const balanceForStore = shouldUpdateBalance
-        ? newRealBalance
-        : (prevRealBalance ?? 0);
+      const balanceForStore = shouldUpdateBalance ? newRealBalance : (prevRealBalance ?? 0);
 
       // ── Actualização atómica: um único ACC_EVENT ───────────────────────────
-      // Passa demoBalance para inicializar o saldo demo numa única operação,
-      // eliminando o segundo ACC_EVENT que causava oscilação visual.
+      // Evita 2-3 disparos rápidos (setDBBalance + setDBOverrides) que causam
+      // oscilação visual dos números no header.
       accountStore.applyServerData(
         balanceForStore,
         newEpoch,
@@ -205,15 +192,13 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
           marginLevelOverride: marginLevelOverride ?? null,
           forceClosePositions: forceClosePositions ?? false,
         },
-        demoBalance,
       );
 
       const currentMode = accountStore.getMode();
-      const affectsCurrentMode = accountStore.getMode() === "real";
+      const affectsCurrentMode = currentMode === "real";
 
       // ── Fecho de posições pelo admin ─────────────────────────────────────────
-      // Também limpa forceEpochReset no servidor (clear_force_close limpa ambos)
-      if ((forceClosePositions || forceEpochReset) && affectsCurrentMode) {
+      if (forceClosePositions && affectsCurrentMode) {
         prevDBBalRef.current = newRealBalance;
         supabase.auth
           .getSession()
@@ -285,35 +270,14 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       });
 
       if (!res.ok) {
-        // Só redirecionar para login quando houver evidência forte de sessão inválida.
-        // Falhas 5xx/rede podem ser transitórias e não devem fechar a sessão do utilizador.
-        const isAuthError = res.status === 401 || res.status === 403;
-        if (isAuthError) {
-          authFailsRef.current += 1;
-          console.warn(
-            "[elite] /api/user/stats auth →",
-            res.status,
-            `(falha ${authFailsRef.current}/3)`,
-          );
-
-          if (authFailsRef.current >= 3) {
-            try {
-              const {
-                data: { session: refreshed },
-                error: refreshErr,
-              } = await supabase.auth.refreshSession();
-              if (refreshErr || !refreshed?.user?.id) {
-                if (askReauth()) router.replace("/auth/login");
-              } else {
-                // Sessão renovada: não expulsar utilizador
-                authFailsRef.current = 0;
-              }
-            } catch {
-              if (askReauth()) router.replace("/auth/login");
-            }
-          }
-        } else {
-          console.warn("[elite] /api/user/stats transient →", res.status);
+        authFailsRef.current += 1;
+        console.warn(
+          "[elite] /api/user/stats →",
+          res.status,
+          `(falha ${authFailsRef.current}/3)`,
+        );
+        if (authFailsRef.current >= 3) {
+          router.replace("/auth/login");
         }
         return;
       }
@@ -336,24 +300,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         d.marginLevelOverride ?? null,
         d.forceClosePositions ?? false,
         d.activeMode ?? null,
-        d.forceEpochReset ?? false,
       );
-
-      // Buscar overrides de preço do admin (apenas xauusd actualmente)
-      try {
-        const priceRes = await fetch("/api/user/prices", {
-          credentials: "include",
-          headers: extraHeaders,
-        });
-        if (priceRes.ok) {
-          const priceJson = await priceRes.json();
-          if (priceJson.prices && typeof priceJson.prices === "object") {
-            priceStore.setAdminOverrides(priceJson.prices);
-          }
-        }
-      } catch {
-        /* silent */
-      }
     } catch (err) {
       console.error("[elite] syncUserStats:", err);
     }
@@ -376,8 +323,8 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         ),
       );
     });
-    // Poll levemente mais lento para suavizar atualização de patrimônio/margens.
-    const iv = setInterval(syncUserStats, 1650);
+    // Poll a cada 5 segundos (garante sincronia rápida com DB)
+    const iv = setInterval(syncUserStats, 5_000);
     return () => {
       u1();
       u2();
@@ -452,15 +399,15 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
         .subscribe();
     }
 
-    // Arrancar realtime mais cedo para reduzir janela sem updates visuais.
-    const t = setTimeout(setupRealtime, 250);
+    // Dar tempo ao syncUserStats inicial de correr e popular userIdRef
+    const t = setTimeout(setupRealtime, 800);
     return () => {
       clearTimeout(t);
       if (channel) supabase.removeChannel(channel);
     };
   }, [syncUserStats]);
 
-  // Live price polling rápido — único poller Finnhub da aplicação.
+  // Live price polling every 8s — único poller Finnhub da aplicação.
   // Escreve no priceStore (cache partilhado) → portfolio e outros subscrevem.
   // TP/SL aqui: funciona em qualquer página, não só no portfolio.
   useEffect(() => {
@@ -477,9 +424,6 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       const displayPrices: Record<string, number> = {};
       await Promise.all(
         open.map(async (pos) => {
-          // Assets com override admin não são actualizados pelo Finnhub
-          // (o admin controla o preço — respeitamos o valor definido)
-          if (priceStore.getAdminOverride(pos.assetId) !== null) return;
           const sym = FINNHUB_MAP[pos.assetId];
           if (!sym) return;
           try {
@@ -565,14 +509,14 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       );
     }
     poll();
-    const iv = setInterval(poll, 5000);
+    const iv = setInterval(poll, 8000);
     return () => {
       dead = true;
       clearInterval(iv);
     };
   }, [recompute, refreshNotifs]);
 
-  // ─── Simulação rápida para TODOS os activos com posições abertas ─────────
+  // ─── Simulação 2s para TODOS os activos com posições abertas ────────────
   // Garante que equity/margem/PnL flutuam em qualquer página da aplicação.
   // O poll Finnhub (8s) sobrepõe com preços reais quando disponíveis.
   // Sem esta simulação, assets com código Finnhub mas sem cotação live (d.c=0)
@@ -618,7 +562,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       qqq: 512.0,
       gld: 318.0,
     };
-    // Volatilidade realista por activo (fracção do preço por tick rápido)
+    // Volatilidade realista por activo (fracção do preço por tick de 2s)
     const VOL: Record<string, number> = {
       eurusd: 0.00012,
       eurgbp: 0.00012,
@@ -665,26 +609,18 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       const cache = priceStore.get();
       const patch: Record<string, number> = {};
       for (const pos of open) {
-        // Para assets com override admin (ex: xauusd), usar o override como base.
-        // Isto garante que o preço flutua em torno do valor definido pelo admin.
-        const adminOverride = priceStore.getAdminOverride(pos.assetId);
-        // Usar override admin → cache → BASE fallback
-        const base =
-          adminOverride ??
-          cache[pos.assetId] ??
-          BASE[pos.assetId] ??
-          pos.openPrice;
+        // Usar preço em cache (Finnhub real ou simulação anterior), fallback no BASE
+        const base = cache[pos.assetId] ?? BASE[pos.assetId] ?? pos.openPrice;
         const vol = base * (VOL[pos.assetId] ?? DEFAULT_VOL);
-        // Flutuação aleatória ainda mais viva para interface dinâmica.
-        // O poll Finnhub sobrepõe quando há cotação real.
+        // Flutuação aleatória ±vol — Finnhub poll de 8s corrige quando há cotação real
         patch[pos.assetId] = Math.max(
           base * 0.1,
-          base + (Math.random() - 0.5) * vol * 0.065,
+          base + (Math.random() - 0.5) * vol * 2,
         );
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);
-    }, 620);
+    }, 2_000);
     return () => clearInterval(iv);
   }, []);
 
@@ -715,9 +651,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  const [mode, setMode] = useState<"demo" | "real">(() =>
-    accountStore.getMode(),
-  );
+  const [mode, setMode] = useState<"demo" | "real">("demo");
   const [userName, setUserName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -741,17 +675,10 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
               .eq("id", session.user.id)
               .single();
             if (data) {
-              const n = [data.first_name, data.last_name]
-                .filter(Boolean)
-                .join(" ");
-              if (n) {
-                profileStore.setName(n);
-                setUserName(n);
-              }
+              const n = [data.first_name, data.last_name].filter(Boolean).join(" ");
+              if (n) { profileStore.setName(n); setUserName(n); }
             }
-          } catch {
-            /* silent */
-          }
+          } catch { /* silent */ }
         })();
       });
     }
@@ -807,7 +734,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       <StatCell
         label={t.dashboard.pnl}
         value={s ? `${pnlPos ? "+" : "-"}$${fmt(Math.abs(s.pnl))}` : "—"}
-        valueClass={pnlPos ? "text-green-400" : "text-red-400"}
+        valueClass={pnlPos ? undefined : "text-red-400"}
       />
       <StatCell
         label={t.dashboard.marginLevel}
@@ -868,263 +795,255 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
 
         {/* ── Right actions ─────────────────────────────── */}
         <div className="flex items-center gap-0.5 px-3 border-l border-sidebar-border flex-shrink-0">
-          {/* Language switcher */}
-          <div data-lang-menu className="relative">
-            <button
-              onClick={() => setLangOpen((o) => !o)}
-              className="flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-              aria-label="Selecionar idioma"
-            >
-              <span className="text-base leading-none">
-                {SUPPORTED_LANGUAGES.find((l) => l.code === displayLang)
-                  ?.flag ?? "🇧🇷"}
-              </span>
-              <span className="text-[11px] font-semibold uppercase">
-                {displayLang}
-              </span>
-              <ChevronDown className="w-3 h-3" />
-            </button>
-            {langOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-52 bg-sidebar/95 backdrop-blur-xl border border-sidebar-border rounded-xl shadow-2xl z-50 py-1.5 overflow-hidden">
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.code}
-                    onClick={() => {
-                      setDisplayLang(lang.code);
-                      localStorage.setItem("elite_lang", lang.code);
-                      ctxSetLang(DISP_TO_CTX[lang.code]);
-                      setLangOpen(false);
-                    }}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
-                      lang.code === displayLang
-                        ? "text-accent font-semibold bg-sidebar-accent"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent",
-                    )}
-                  >
-                    <span className="text-base leading-none w-6 text-center">
-                      {lang.flag}
-                    </span>
-                    <span>{lang.label}</span>
-                    {lang.code === displayLang && (
-                      <span className="text-[10px] text-accent ml-auto">✓</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Notifications bell */}
-          <div data-bell-menu className="relative">
-            <button
-              onClick={() => setBellOpen((o) => !o)}
-              className="relative w-9 h-9 flex items-center justify-center rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-            >
-              <Bell className="w-4 h-4" />
-              {notifs.some((n) => !n.read) && (
-                <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 bg-red-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white px-0.5">
-                  {notifs.filter((n) => !n.read).length > 9
-                    ? "9+"
-                    : notifs.filter((n) => !n.read).length}
-                </span>
-              )}
-            </button>
-            {bellOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-80 bg-sidebar border border-sidebar-border rounded-xl shadow-2xl z-50 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-sidebar-border">
-                  <span className="text-sm font-semibold text-sidebar-foreground">
-                    {t.dashboard.notifications}
-                  </span>
-                  {notifs.some((n) => !n.read) && (
-                    <button
-                      onClick={() => {
-                        notificationStore.markAllRead();
-                        refreshNotifs();
-                      }}
-                      className="text-[10px] text-accent hover:underline flex items-center gap-1"
-                    >
-                      <CheckCheck className="w-3 h-3" />{" "}
-                      {t.dashboard.markAllRead}
-                    </button>
+        {/* Language switcher */}
+        <div data-lang-menu className="relative">
+          <button
+            onClick={() => setLangOpen((o) => !o)}
+            className="flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+            aria-label="Selecionar idioma"
+          >
+            <span className="text-base leading-none">
+              {SUPPORTED_LANGUAGES.find((l) => l.code === displayLang)?.flag ??
+                "🇧🇷"}
+            </span>
+            <span className="text-[11px] font-semibold uppercase">
+              {displayLang}
+            </span>
+            <ChevronDown className="w-3 h-3" />
+          </button>
+          {langOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-52 bg-sidebar/95 backdrop-blur-xl border border-sidebar-border rounded-xl shadow-2xl z-50 py-1.5 overflow-hidden">
+              {SUPPORTED_LANGUAGES.map((lang) => (
+                <button
+                  key={lang.code}
+                  onClick={() => {
+                    setDisplayLang(lang.code);
+                    localStorage.setItem("elite_lang", lang.code);
+                    ctxSetLang(DISP_TO_CTX[lang.code]);
+                    setLangOpen(false);
+                  }}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
+                    lang.code === displayLang
+                      ? "text-accent font-semibold bg-sidebar-accent"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
                   )}
-                </div>
-                <div className="max-h-72 overflow-y-auto">
-                  {notifs.length === 0 ? (
-                    <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                      {t.dashboard.noNotifications}
-                    </div>
-                  ) : (
-                    notifs.slice(0, 20).map((n) => (
+                >
+                  <span className="text-base leading-none w-6 text-center">
+                    {lang.flag}
+                  </span>
+                  <span>{lang.label}</span>
+                  {lang.code === displayLang && (
+                    <span className="text-[10px] text-accent ml-auto">✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Notifications bell */}
+        <div data-bell-menu className="relative">
+          <button
+            onClick={() => setBellOpen((o) => !o)}
+            className="relative w-9 h-9 flex items-center justify-center rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          >
+            <Bell className="w-4 h-4" />
+            {notifs.some((n) => !n.read) && (
+              <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 bg-red-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white px-0.5">
+                {notifs.filter((n) => !n.read).length > 9
+                  ? "9+"
+                  : notifs.filter((n) => !n.read).length}
+              </span>
+            )}
+          </button>
+          {bellOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-80 bg-sidebar border border-sidebar-border rounded-xl shadow-2xl z-50 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-sidebar-border">
+                <span className="text-sm font-semibold text-sidebar-foreground">
+                  {t.dashboard.notifications}
+                </span>
+                {notifs.some((n) => !n.read) && (
+                  <button
+                    onClick={() => {
+                      notificationStore.markAllRead();
+                      refreshNotifs();
+                    }}
+                    className="text-[10px] text-accent hover:underline flex items-center gap-1"
+                  >
+                    <CheckCheck className="w-3 h-3" /> {t.dashboard.markAllRead}
+                  </button>
+                )}
+              </div>
+              <div className="max-h-72 overflow-y-auto">
+                {notifs.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    {t.dashboard.noNotifications}
+                  </div>
+                ) : (
+                  notifs.slice(0, 20).map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={() => {
+                        notificationStore.markRead(n.id);
+                        if (n.type === "trade_close" || n.type === "warning" || n.type === "success") {
+                          setBellOpen(false);
+                          router.push("/trade/dashboard/history");
+                        }
+                      }}
+                      className={cn(
+                        "flex gap-2.5 px-4 py-2.5 border-b border-sidebar-border/50 last:border-0 cursor-pointer hover:bg-sidebar-accent transition-colors",
+                        n.read && "opacity-60",
+                      )}
+                    >
                       <div
-                        key={n.id}
-                        onClick={() => {
-                          notificationStore.markRead(n.id);
-                          if (
-                            n.type === "trade_close" ||
-                            n.type === "warning" ||
-                            n.type === "success"
-                          ) {
-                            setBellOpen(false);
-                            router.push("/trade/dashboard/history");
-                          }
-                        }}
                         className={cn(
-                          "flex gap-2.5 px-4 py-2.5 border-b border-sidebar-border/50 last:border-0 cursor-pointer hover:bg-sidebar-accent transition-colors",
-                          n.read && "opacity-60",
+                          "w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5",
+                          n.type === "trade_open"
+                            ? "bg-green-500/20"
+                            : n.type === "trade_close"
+                              ? "bg-accent/20"
+                              : n.type === "success"
+                                ? "bg-green-500/20"
+                                : n.type === "account"
+                                  ? "bg-purple-500/20"
+                                  : n.type === "warning"
+                                    ? "bg-red-500/20"
+                                    : "bg-accent/20",
                         )}
                       >
-                        <div
-                          className={cn(
-                            "w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5",
-                            n.type === "trade_open"
-                              ? "bg-green-500/20"
-                              : n.type === "trade_close"
-                                ? "bg-accent/20"
-                                : n.type === "success"
-                                  ? "bg-green-500/20"
-                                  : n.type === "account"
-                                    ? "bg-purple-500/20"
-                                    : n.type === "warning"
-                                      ? "bg-red-500/20"
-                                      : "bg-accent/20",
-                          )}
-                        >
-                          {n.type === "trade_open" ? (
-                            <TrendingUp className="w-3.5 h-3.5 text-green-400" />
-                          ) : n.type === "success" ? (
-                            <TrendingUp className="w-3.5 h-3.5 text-green-400" />
-                          ) : n.type === "trade_close" ? (
-                            <TrendingDown className="w-3.5 h-3.5 text-accent" />
-                          ) : n.type === "warning" ? (
-                            <TrendingDown className="w-3.5 h-3.5 text-red-400" />
-                          ) : n.type === "account" ? (
-                            <User className="w-3.5 h-3.5 text-purple-400" />
-                          ) : (
-                            <Info className="w-3.5 h-3.5 text-accent" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p
-                            className={cn(
-                              "text-xs font-semibold",
-                              n.read
-                                ? "text-sidebar-foreground/60"
-                                : "text-sidebar-foreground",
-                            )}
-                          >
-                            {n.title}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                            {n.message}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                            {new Date(n.createdAt).toLocaleTimeString("pt-PT", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </p>
-                        </div>
-                        {!n.read && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-accent mt-1.5 flex-shrink-0" />
+                        {n.type === "trade_open" ? (
+                          <TrendingUp className="w-3.5 h-3.5 text-green-400" />
+                        ) : n.type === "success" ? (
+                          <TrendingUp className="w-3.5 h-3.5 text-green-400" />
+                        ) : n.type === "trade_close" ? (
+                          <TrendingDown className="w-3.5 h-3.5 text-accent" />
+                        ) : n.type === "warning" ? (
+                          <TrendingDown className="w-3.5 h-3.5 text-red-400" />
+                        ) : n.type === "account" ? (
+                          <User className="w-3.5 h-3.5 text-purple-400" />
+                        ) : (
+                          <Info className="w-3.5 h-3.5 text-accent" />
                         )}
                       </div>
-                    ))
-                  )}
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className={cn(
+                            "text-xs font-semibold",
+                            n.read
+                              ? "text-sidebar-foreground/60"
+                              : "text-sidebar-foreground",
+                          )}
+                        >
+                          {n.title}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                          {n.message}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                          {new Date(n.createdAt).toLocaleTimeString("pt-PT", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                      {!n.read && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent mt-1.5 flex-shrink-0" />
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+              {notifs.length > 0 && (
+                <div className="px-4 py-2 border-t border-sidebar-border">
+                  <button
+                    onClick={() => {
+                      notificationStore.clear();
+                      refreshNotifs();
+                    }}
+                    className="text-[11px] text-red-400 hover:text-red-300 flex items-center gap-1"
+                  >
+                    <X className="w-3 h-3" /> {t.dashboard.clearAll}
+                  </button>
                 </div>
-                {notifs.length > 0 && (
-                  <div className="px-4 py-2 border-t border-sidebar-border">
-                    <button
-                      onClick={() => {
-                        notificationStore.clear();
-                        refreshNotifs();
-                      }}
-                      className="text-[11px] text-red-400 hover:text-red-300 flex items-center gap-1"
-                    >
-                      <X className="w-3 h-3" /> {t.dashboard.clearAll}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* User dropdown */}
-          <div data-user-menu className="relative">
-            <button
-              onClick={() => setUserOpen((o) => !o)}
-              className="flex items-center gap-1.5 h-9 px-2 rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-            >
-              <div className="w-6 h-6 bg-accent rounded-full flex items-center justify-center">
-                <User className="w-3 h-3 text-accent-foreground" />
-              </div>
-              {userName && (
-                <span className="text-[12px] font-semibold text-sidebar-foreground hidden lg:block max-w-[120px] truncate">
-                  {userName.split(" ")[0]}
-                </span>
               )}
-              <ChevronDown
-                className={cn(
-                  "w-3 h-3 transition-transform duration-200",
-                  userOpen && "rotate-180",
-                )}
-              />
-            </button>
-            {userOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-52 bg-sidebar border border-sidebar-border rounded-xl shadow-xl z-50 py-1">
-                {userName && (
-                  <div className="px-4 py-2.5 border-b border-sidebar-border">
-                    <p className="text-[11px] text-muted-foreground">Conta</p>
-                    <p className="text-sm font-semibold text-sidebar-foreground truncate">
-                      {userName}
-                    </p>
-                  </div>
-                )}
-                <Link
-                  href="/trade/dashboard/account"
-                  className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                  onClick={() => setUserOpen(false)}
-                >
-                  <User className="w-4 h-4 text-muted-foreground" /> Minha Conta
-                </Link>
-                <Link
-                  href="/trade/dashboard/funds?tab=withdraw"
-                  className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                  onClick={() => setUserOpen(false)}
-                >
-                  <Wallet className="w-4 h-4 text-muted-foreground" />{" "}
-                  Levantamentos
-                </Link>
-                <Link
-                  href="/trade/dashboard/account?tab=security"
-                  className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                  onClick={() => setUserOpen(false)}
-                >
-                  <Settings className="w-4 h-4 text-muted-foreground" />{" "}
-                  {t.dashboard.settings}
-                </Link>
-                <div className="h-px bg-sidebar-border my-1" />
-                <button
-                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-400 hover:bg-sidebar-accent transition-colors"
-                  onClick={handleLogout}
-                >
-                  <LogOut className="w-4 h-4" /> {t.dashboard.signOut}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Depósito */}
-          <Link
-            href="/trade/dashboard/funds?tab=deposit"
-            className="ml-2 h-8 px-4 rounded-lg bg-accent text-accent-foreground text-[13px] font-bold hover:bg-accent/90 active:scale-95 transition-all whitespace-nowrap flex items-center"
-          >
-            {t.dashboard.deposit}
-          </Link>
+            </div>
+          )}
         </div>
-        {/* fim right-actions */}
-      </div>
-      {/* fim linha principal */}
+
+        {/* User dropdown */}
+        <div data-user-menu className="relative">
+          <button
+            onClick={() => setUserOpen((o) => !o)}
+            className="flex items-center gap-1.5 h-9 px-2 rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          >
+            <div className="w-6 h-6 bg-accent rounded-full flex items-center justify-center">
+              <User className="w-3 h-3 text-accent-foreground" />
+            </div>
+            {userName && (
+              <span className="text-[12px] font-semibold text-sidebar-foreground hidden lg:block max-w-[120px] truncate">
+                {userName.split(" ")[0]}
+              </span>
+            )}
+            <ChevronDown
+              className={cn(
+                "w-3 h-3 transition-transform duration-200",
+                userOpen && "rotate-180",
+              )}
+            />
+          </button>
+          {userOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-52 bg-sidebar border border-sidebar-border rounded-xl shadow-xl z-50 py-1">
+              {userName && (
+                <div className="px-4 py-2.5 border-b border-sidebar-border">
+                  <p className="text-[11px] text-muted-foreground">Conta</p>
+                  <p className="text-sm font-semibold text-sidebar-foreground truncate">{userName}</p>
+                </div>
+              )}
+              <Link
+                href="/trade/dashboard/account"
+                className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                onClick={() => setUserOpen(false)}
+              >
+                <User className="w-4 h-4 text-muted-foreground" />{" "}
+                Minha Conta
+              </Link>
+              <Link
+                href="/trade/dashboard/funds?tab=withdraw"
+                className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                onClick={() => setUserOpen(false)}
+              >
+                <Wallet className="w-4 h-4 text-muted-foreground" />{" "}
+                Levantamentos
+              </Link>
+              <Link
+                href="/trade/dashboard/account?tab=security"
+                className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                onClick={() => setUserOpen(false)}
+              >
+                <Settings className="w-4 h-4 text-muted-foreground" />{" "}
+                {t.dashboard.settings}
+              </Link>
+              <div className="h-px bg-sidebar-border my-1" />
+              <button
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-400 hover:bg-sidebar-accent transition-colors"
+                onClick={handleLogout}
+              >
+                <LogOut className="w-4 h-4" /> {t.dashboard.signOut}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Depósito */}
+        <Link
+          href="/trade/dashboard/funds?tab=deposit"
+          className="ml-2 h-8 px-4 rounded-lg bg-accent text-accent-foreground text-[13px] font-bold hover:bg-accent/90 active:scale-95 transition-all whitespace-nowrap flex items-center"
+        >
+          {t.dashboard.deposit}
+        </Link>
+        </div>{/* fim right-actions */}
+      </div>{/* fim linha principal */}
 
       {/* ── Stats strip mobile (segunda linha) ────────────── */}
       <div className="lg:hidden flex items-stretch overflow-x-auto no-scrollbar divide-x divide-sidebar-border border-t border-sidebar-border bg-sidebar/95 h-12">

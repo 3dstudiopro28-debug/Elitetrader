@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createServerClient, hasServiceRole } from "@/lib/supabase-server"
+import { createServerClient } from "@/lib/supabase-server"
 import { requireAdmin } from "@/lib/admin-auth"
 
 export async function GET(req: NextRequest) {
-  const unauth = await requireAdmin(req)
+  const unauth = requireAdmin(req)
   if (unauth) return unauth
-
-  if (!hasServiceRole()) {
-    return NextResponse.json(
-      { error: "SUPABASE_SERVICE_ROLE_KEY não configurada" },
-      { status: 503 },
-    )
-  }
 
   const sb = createServerClient()
 

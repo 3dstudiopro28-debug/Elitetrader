@@ -116,9 +116,7 @@ export default function DashboardPage() {
     ),
   );
   const [userName, setUserName] = useState<string | null>(null);
-  const [mode, setMode] = useState<"demo" | "real">(() =>
-    accountStore.getMode(),
-  );
+  const [mode, setMode] = useState<"demo" | "real">("demo");
   const [openCount, setOpenCount] = useState(0);
   const [activeMarketCount, setActiveMarketCount] = useState(0);
   const [flashes, setFlashes] = useState<Record<string, "up" | "down">>({});
@@ -212,8 +210,8 @@ export default function DashboardPage() {
     const deltas: Record<string, number> = {};
     const nextFlashes: Record<string, "up" | "down"> = {};
     MARKET_ITEMS.forEach((item) => {
-      // random walk mais dinâmico por tick, mantendo leve viés positivo
-      const pct = (Math.random() - 0.49) * 0.0044;
+      // random walk ±0.15% por tick, leve viés positivo
+      const pct = (Math.random() - 0.492) * 0.003;
       deltas[item.symbol] = pct;
       nextFlashes[item.symbol] = pct >= 0 ? "up" : "down";
     });
@@ -232,13 +230,13 @@ export default function DashboardPage() {
       return next;
     });
     setFlashes(nextFlashes);
-    setTimeout(() => setFlashes({}), 320);
+    setTimeout(() => setFlashes({}), 700);
   }, []);
 
   useEffect(() => {
     // Arrancar simulação imediatamente para ter valores não-zero
     tick();
-    const id = setInterval(tick, 2000);
+    const id = setInterval(tick, 1800);
     return () => clearInterval(id);
   }, [tick]);
 
@@ -649,6 +647,7 @@ export default function DashboardPage() {
           );
         })}
       </motion.div>
+
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/admin-auth"
 
 export async function GET(req: NextRequest) {
-  const unauth = await requireAdmin(req)
+  const unauth = requireAdmin(req)
   if (unauth) return unauth
 
   const repairSQL = `

@@ -10,74 +10,70 @@
  * Data shape matches the Supabase schema in lib/db-schema.sql
  */
 
-export type UserStatus = "active" | "suspended" | "pending";
-export type AccountMode = "demo" | "real";
+export type UserStatus = "active" | "suspended" | "pending"
+export type AccountMode = "demo" | "real"
 
 export interface CRMUser {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  phone: string;
-  country: string;
-  createdAt: string; // ISO string
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  phone: string
+  country: string
+  createdAt: string          // ISO string
 
   // Account
-  mode: AccountMode;
-  status: UserStatus;
-  balance: number; // balance do modo atualmente selecionado
-  demoBalance: number; // saldo da conta demo
-  realBalance: number; // saldo da conta real (0 se não existir)
-  leverage: number;
-  currency: string;
+  mode: AccountMode
+  status: UserStatus
+  balance: number            // balance do modo atualmente selecionado
+  demoBalance: number        // saldo da conta demo
+  realBalance: number        // saldo da conta real (0 se não existir)
+  leverage: number
+  currency: string
 
   // Admin overrides (what the client sees)
-  balanceOverride: number | null; // if set, shown instead of real balance
-  marginLevelOverride: number | null; // if set, shown instead of calculated margin
-  equityOverride: number | null; // if set, shown as equity in header
+  balanceOverride: number | null      // if set, shown instead of real balance
+  marginLevelOverride: number | null  // if set, shown instead of calculated margin
+  equityOverride: number | null       // if set, shown as equity in header
 
   // Admin notes
-  adminNotes: string;
+  adminNotes: string
 
   // Meta
-  lastLogin: string | null;
-  presenceStatus?: "online" | "offline";
-  lastSeenAt?: string | null;
-  kycStatus: "unverified" | "pending" | "verified";
-  totalDeposited: number;
-  totalWithdrawn: number;
+  lastLogin: string | null
+  kycStatus: "unverified" | "pending" | "verified"
+  totalDeposited: number
+  totalWithdrawn: number
 }
 
-const STORE_KEY = "et_crm_users";
+const STORE_KEY = "et_crm_users"
 
 function genId(): string {
-  return (
-    "usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
-  );
+  return "usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 }
 
 function load(): CRMUser[] {
-  if (typeof window === "undefined") return [];
+  if (typeof window === "undefined") return []
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    return raw ? (JSON.parse(raw) as CRMUser[]) : [];
+    const raw = localStorage.getItem(STORE_KEY)
+    return raw ? (JSON.parse(raw) as CRMUser[]) : []
   } catch {
-    return [];
+    return []
   }
 }
 
 function save(users: CRMUser[]): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORE_KEY, JSON.stringify(users));
+  if (typeof window === "undefined") return
+  localStorage.setItem(STORE_KEY, JSON.stringify(users))
 }
 
 // ─── Seed demo users if list is empty ─────────────────────────────────────────
 function seedIfEmpty(): void {
-  if (typeof window === "undefined") return;
-  const existing = load();
-  if (existing.length > 0) return;
+  if (typeof window === "undefined") return
+  const existing = load()
+  if (existing.length > 0) return
 
-  const now = new Date().toISOString();
+  const now = new Date().toISOString()
   const seed: CRMUser[] = [
     {
       id: genId(),
@@ -150,9 +146,9 @@ function seedIfEmpty(): void {
       kycStatus: "unverified",
       totalDeposited: 0,
       totalWithdrawn: 0,
-    },
-  ];
-  save(seed);
+    }
+  ]
+  save(seed)
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
@@ -160,31 +156,29 @@ function seedIfEmpty(): void {
 export const userStore = {
   /** Return all users */
   getAll(): CRMUser[] {
-    seedIfEmpty();
-    return load();
+    seedIfEmpty()
+    return load()
   },
 
   /** Find user by id */
   getById(id: string): CRMUser | null {
-    return load().find((u) => u.id === id) ?? null;
+    return load().find(u => u.id === id) ?? null
   },
 
   /** Find user by email */
   getByEmail(email: string): CRMUser | null {
-    return (
-      load().find((u) => u.email.toLowerCase() === email.toLowerCase()) ?? null
-    );
+    return load().find(u => u.email.toLowerCase() === email.toLowerCase()) ?? null
   },
 
   /** Create new user (called on registration) */
   create(data: {
-    email: string;
-    firstName: string;
-    lastName: string;
-    phone?: string;
-    country?: string;
+    email: string
+    firstName: string
+    lastName: string
+    phone?: string
+    country?: string
   }): CRMUser {
-    const users = load();
+    const users = load()
     const newUser: CRMUser = {
       id: genId(),
       email: data.email,
@@ -208,70 +202,70 @@ export const userStore = {
       kycStatus: "unverified",
       totalDeposited: 0,
       totalWithdrawn: 0,
-    };
-    users.push(newUser);
-    save(users);
-    return newUser;
+    }
+    users.push(newUser)
+    save(users)
+    return newUser
   },
 
   /** Update any fields of a user (admin use) */
   update(id: string, patch: Partial<CRMUser>): CRMUser | null {
-    const users = load();
-    const idx = users.findIndex((u) => u.id === id);
-    if (idx === -1) return null;
-    users[idx] = { ...users[idx], ...patch };
-    save(users);
-    return users[idx];
+    const users = load()
+    const idx = users.findIndex(u => u.id === id)
+    if (idx === -1) return null
+    users[idx] = { ...users[idx], ...patch }
+    save(users)
+    return users[idx]
   },
 
   /** Delete a user */
   delete(id: string): boolean {
-    const users = load();
-    const filtered = users.filter((u) => u.id !== id);
-    if (filtered.length === users.length) return false;
-    save(filtered);
-    return true;
+    const users = load()
+    const filtered = users.filter(u => u.id !== id)
+    if (filtered.length === users.length) return false
+    save(filtered)
+    return true
   },
 
   /** Admin: set balance override for one user */
   setBalanceOverride(id: string, value: number | null): void {
-    this.update(id, { balanceOverride: value });
+    this.update(id, { balanceOverride: value })
   },
 
   /** Admin: set margin level override for one user */
   setMarginOverride(id: string, value: number | null): void {
-    this.update(id, { marginLevelOverride: value });
+    this.update(id, { marginLevelOverride: value })
   },
 
   /** Admin: set equity override for one user */
   setEquityOverride(id: string, value: number | null): void {
-    this.update(id, { equityOverride: value });
+    this.update(id, { equityOverride: value })
   },
 
   /** Admin: set account status */
   setStatus(id: string, status: UserStatus): void {
-    this.update(id, { status });
+    this.update(id, { status })
   },
 
   /** Admin: add or remove funds */
   adjustBalance(id: string, delta: number): CRMUser | null {
-    const user = this.getById(id);
-    if (!user) return null;
-    const newBalance = Math.max(0, (user.balance ?? 0) + delta);
-    return this.update(id, { balance: newBalance });
+    const user = this.getById(id)
+    if (!user) return null
+    const newBalance = Math.max(0, (user.balance ?? 0) + delta)
+    return this.update(id, { balance: newBalance })
   },
 
   /** Stats for admin dashboard */
   getStats() {
-    const users = load();
+    const users = load()
     return {
       total: users.length,
-      active: users.filter((u) => u.status === "active").length,
-      suspended: users.filter((u) => u.status === "suspended").length,
-      pending: users.filter((u) => u.status === "pending").length,
-      demo: users.filter((u) => u.mode === "demo").length,
-      real: users.filter((u) => u.mode === "real").length,
+      active: users.filter(u => u.status === "active").length,
+      suspended: users.filter(u => u.status === "suspended").length,
+      pending: users.filter(u => u.status === "pending").length,
+      demo: users.filter(u => u.mode === "demo").length,
+      real: users.filter(u => u.mode === "real").length,
       totalDeposited: users.reduce((s, u) => s + u.totalDeposited, 0),
-    };
+    }
   },
-};
+}

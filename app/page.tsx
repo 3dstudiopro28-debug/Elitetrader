@@ -8,12 +8,10 @@ import { MarketsSection } from "@/components/markets-section";
 import { ConditionsSection } from "@/components/conditions-section";
 import { CTASection } from "@/components/cta-section";
 import { Footer } from "@/components/footer";
-import { HashAdminBridge } from "@/components/hash-admin-bridge";
 
 export default function HomePage() {
   return (
     <main className="min-h-screen">
-      <HashAdminBridge />
       <Header />
       <HeroSection />
       <FeaturesSection />
