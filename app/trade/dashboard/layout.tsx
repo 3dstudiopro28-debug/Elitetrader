@@ -10,6 +10,13 @@ import { accountStore } from "@/lib/account-store";
 import { notificationStore } from "@/lib/notification-store";
 import type { GhostPayload } from "@/lib/ghost-pending-store";
 
+function askReauth(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.confirm(
+    "Não foi possível validar a sua sessão. Deseja ir para o login?",
+  );
+}
+
 /** Limpa todos os dados ET do localStorage se o utilizador for diferente do anterior.
  *  Evita que utilizador B herde posições/histórico/epoch do utilizador A. */
 function clearStaleUserData(userId: string) {
@@ -49,13 +56,17 @@ export default function DashboardLayout({
         supabase.auth
           .refreshSession()
           .then(({ data: { session: refreshed } }) => {
-            if (!refreshed) router.replace("/auth/login");
+            if (!refreshed) {
+              if (askReauth()) router.replace("/auth/login");
+            }
             else {
               clearStaleUserData(refreshed.user.id);
               setReady(true);
             }
           })
-          .catch(() => router.replace("/auth/login"));
+          .catch(() => {
+            if (askReauth()) router.replace("/auth/login");
+          });
       } else {
         clearStaleUserData(session.user.id);
         setReady(true);

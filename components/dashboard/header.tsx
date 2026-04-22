@@ -66,6 +66,13 @@ function fmt(n: number) {
   });
 }
 
+function askReauth(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.confirm(
+    "A sessão parece expirada. Deseja ir para a página de login agora?",
+  );
+}
+
 const SUPPORTED_LANGUAGES = [
   { code: "en" as const, label: "English", flag: "🇬🇧" },
   { code: "ar" as const, label: "العربية", flag: "🇸🇦" },
@@ -278,14 +285,35 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       });
 
       if (!res.ok) {
-        authFailsRef.current += 1;
-        console.warn(
-          "[elite] /api/user/stats →",
-          res.status,
-          `(falha ${authFailsRef.current}/3)`,
-        );
-        if (authFailsRef.current >= 3) {
-          router.replace("/auth/login");
+        // Só redirecionar para login quando houver evidência forte de sessão inválida.
+        // Falhas 5xx/rede podem ser transitórias e não devem fechar a sessão do utilizador.
+        const isAuthError = res.status === 401 || res.status === 403;
+        if (isAuthError) {
+          authFailsRef.current += 1;
+          console.warn(
+            "[elite] /api/user/stats auth →",
+            res.status,
+            `(falha ${authFailsRef.current}/3)`,
+          );
+
+          if (authFailsRef.current >= 3) {
+            try {
+              const {
+                data: { session: refreshed },
+                error: refreshErr,
+              } = await supabase.auth.refreshSession();
+              if (refreshErr || !refreshed?.user?.id) {
+                if (askReauth()) router.replace("/auth/login");
+              } else {
+                // Sessão renovada: não expulsar utilizador
+                authFailsRef.current = 0;
+              }
+            } catch {
+              if (askReauth()) router.replace("/auth/login");
+            }
+          }
+        } else {
+          console.warn("[elite] /api/user/stats transient →", res.status);
         }
         return;
       }
