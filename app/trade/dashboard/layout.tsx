@@ -10,6 +10,29 @@ import { accountStore } from "@/lib/account-store";
 import { notificationStore } from "@/lib/notification-store";
 import type { GhostPayload } from "@/lib/ghost-pending-store";
 
+function askReauth(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.confirm(
+    "Não foi possível validar a sua sessão. Deseja ir para o login?",
+  );
+}
+
+/** Limpa todos os dados ET do localStorage se o utilizador for diferente do anterior.
+ *  Evita que utilizador B herde posições/histórico/epoch do utilizador A. */
+function clearStaleUserData(userId: string) {
+  try {
+    const stored = localStorage.getItem("et_session_user_id");
+    if (stored && stored !== userId) {
+      // Utilizador diferente — apagar todos os dados ET
+      const keys = Object.keys(localStorage).filter((k) => k.startsWith("et_"));
+      keys.forEach((k) => localStorage.removeItem(k));
+    }
+    localStorage.setItem("et_session_user_id", userId);
+  } catch {
+    /* SSR / private browsing */
+  }
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -21,6 +44,11 @@ export default function DashboardLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const presenceRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const realtimePresenceRef = useRef<ReturnType<
+    typeof supabase.channel
+  > | null>(null);
+  const realtimeTrackRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -28,11 +56,19 @@ export default function DashboardLayout({
         supabase.auth
           .refreshSession()
           .then(({ data: { session: refreshed } }) => {
-            if (!refreshed) router.replace("/auth/login");
-            else setReady(true);
+            if (!refreshed) {
+              if (askReauth()) router.replace("/auth/login");
+            }
+            else {
+              clearStaleUserData(refreshed.user.id);
+              setReady(true);
+            }
           })
-          .catch(() => router.replace("/auth/login"));
+          .catch(() => {
+            if (askReauth()) router.replace("/auth/login");
+          });
       } else {
+        clearStaleUserData(session.user.id);
         setReady(true);
       }
     });
@@ -40,7 +76,23 @@ export default function DashboardLayout({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT") router.replace("/auth/login");
+      if (event === "SIGNED_OUT") {
+        // Preservar o modo (demo/real) para o próximo login, apagar o resto.
+        try {
+          const savedMode = localStorage.getItem("et_account_mode");
+          const keysToRemove = Object.keys(localStorage).filter(
+            (k) => k.startsWith("et_") && k !== "et_account_mode",
+          );
+          keysToRemove.forEach((k) => localStorage.removeItem(k));
+          // Restaurar modo se existia
+          if (savedMode === "demo" || savedMode === "real") {
+            localStorage.setItem("et_account_mode", savedMode);
+          }
+        } catch {
+          /* ignore */
+        }
+        router.replace("/auth/login");
+      }
     });
     return () => subscription.unsubscribe();
   }, [router]);
@@ -54,11 +106,28 @@ export default function DashboardLayout({
     // Só preenche o localStorage se estiver vazio para o modo actual.
     async function syncOpenPositionsFromDB() {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (!session?.access_token) return;
+        // Verificação extra de segurança: só sincronizar se o userId em localStorage
+        // corresponder ao da sessão actual (clearStaleUserData devia garantir isto,
+        // mas verificamos novamente por precaução).
+        const storedUserId = localStorage.getItem("et_session_user_id");
+        if (storedUserId && storedUserId !== session.user.id) {
+          // Dados obsoletos — limpar e sair (o clearStaleUserData já devia ter corrido)
+          const keys = Object.keys(localStorage).filter((k) =>
+            k.startsWith("et_"),
+          );
+          keys.forEach((k) => localStorage.removeItem(k));
+          localStorage.setItem("et_session_user_id", session.user.id);
+          return;
+        }
         const localOpen = tradeStore.getOpen();
         if (localOpen.length > 0) return; // já tem posições locais — não sobrescrever
-        const res = await fetch("/api/positions/open", {
+        // Passar o modo actual para que o servidor filtre as posições correctas
+        const currentMode = localStorage.getItem("et_account_mode") ?? "real";
+        const res = await fetch(`/api/positions/open?mode=${currentMode}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
           credentials: "include",
           cache: "no-store",
@@ -68,7 +137,9 @@ export default function DashboardLayout({
         if (Array.isArray(data) && data.length > 0) {
           tradeStore.initOpenFromRemote(data as Record<string, unknown>[]);
         }
-      } catch { /* falha silenciosa */ }
+      } catch {
+        /* falha silenciosa */
+      }
     }
     syncOpenPositionsFromDB();
 
@@ -94,142 +165,74 @@ export default function DashboardLayout({
         const n = openPositions.length;
 
         if (payload.mode === "close_open" && n > 0) {
-          // ─── Distribuição inteligente de P/Ls ────────────────────────────
-          // O servidor envia `totalDelta` = o delta real do saldo.
-          // REGRA: a soma de todos os P/Ls DEVE igualar exactamente totalDelta.
-          //
-          //  1 posição → fecha com PnL = totalDelta (sinal correcto preservado)
-          //  2+ posições → pelo menos 1 com sinal oposto (bait), soma = totalDelta
-          //  0 posições → bloco não entra aqui (saldo já actualizado no DB)
+          // ─── O servidor já fechou as posições no DB e calculou os P/Ls ───
+          // payload.pnls contém os P/Ls exactos calculados server-side.
+          // Usar directamente para não re-distribuir e não criar dupla entrada no DB.
+          // Se por algum motivo o número de pnls não bater com n, cair para totalDelta.
 
-          const totalDelta = payload.totalDelta ?? (payload.pnls ?? []).reduce((a, b) => a + b, 0)
-          const now = new Date().toISOString()
+          const serverPnls = payload.pnls ?? [];
+          const totalDelta =
+            payload.totalDelta ?? serverPnls.reduce((a, b) => a + b, 0);
+          const now = new Date().toISOString();
 
-          // Calcular array de PnLs para N posições com soma exacta = totalDelta
-          function buildPnls(count: number, target: number): number[] {
-            if (count === 0) return []
-            if (count === 1) return [parseFloat(target.toFixed(2))]
-
-            // Bait: sinal OPOSTO ao target, entre 15-40% do absoluto (mín $1)
-            const baitSign  = target >= 0 ? -1 : 1
-            const baitAbs   = Math.max(1.00, Math.abs(target) * (0.15 + Math.random() * 0.25))
-            const bait      = parseFloat((baitSign * baitAbs).toFixed(2))
-            const remaining = parseFloat((target - bait).toFixed(2))
-
-            if (count === 2) {
-              // Ajuste para garantir soma exacta
-              const last = parseFloat((target - bait).toFixed(2))
-              return [bait, last]
-            }
-
-            // N > 2: distribuir remaining pelas N-1 fatias restantes
-            const others: number[] = []
-            let acc = 0
-            for (let i = 0; i < count - 2; i++) {
-              const ratio = 0.3 + Math.random() * 0.4
-              const v     = parseFloat((remaining * ratio).toFixed(2))
-              others.push(v)
-              acc += v
-            }
-            // Última fatia absorve o restante (evita drift de floating-point)
-            others.push(parseFloat((remaining - acc).toFixed(2)))
-
-            // Inserir bait numa posição aleatória
-            const baitIdx = Math.floor(Math.random() * count)
-            const result: number[] = []
-            let oi = 0
-            for (let i = 0; i < count; i++) {
-              result.push(i === baitIdx ? bait : others[oi++])
-            }
-            return result
+          // Mapear P/Ls do servidor → posições locais (pela ordem de abertura)
+          // Se contagens divergirem usa totalDelta dividido igualmente
+          let pnls: number[];
+          if (serverPnls.length === n) {
+            pnls = serverPnls;
+          } else {
+            // Fallback: distribuição igual pelo totalDelta
+            const each = parseFloat((totalDelta / n).toFixed(2));
+            pnls = openPositions.map((_, i) =>
+              i === n - 1
+                ? parseFloat((totalDelta - each * (n - 1)).toFixed(2))
+                : each,
+            );
           }
 
-          const pnls = buildPnls(n, totalDelta)
-
-          openPositions.forEach((pos, i) => {
-            const pnl = pnls[i] ?? 0
-            // Calcular preço de fecho consistente com o PnL
-            const contractSize = 100_000
-            const divisor      = pos.lots * contractSize
-            const priceMove    = divisor > 0 ? pnl / divisor : 0
-            const rawClose     = pos.type === "buy"
-              ? pos.openPrice + priceMove
-              : pos.openPrice - priceMove
-            const closePrice   = Math.max(rawClose, pos.openPrice * 0.0001)
-
-            tradeStore.closePositionDirect(
-              pos.id,
-              parseFloat(closePrice.toFixed(5)),
+          // Construir closures para actualizar localStorage
+          const closures = openPositions.map((pos, i) => {
+            const pnl = pnls[i] ?? 0;
+            const contractSize = 100_000;
+            const divisor = pos.lots * contractSize;
+            const priceMove = divisor > 0 ? pnl / divisor : 0;
+            const rawClose =
+              pos.type === "buy"
+                ? pos.openPrice + priceMove
+                : pos.openPrice - priceMove;
+            const closePrice = Math.max(rawClose, pos.openPrice * 0.0001);
+            return {
+              id: pos.id,
+              closePrice: parseFloat(closePrice.toFixed(5)),
               pnl,
-              now,
-              "adjustment",
-            )
+              closedAt: now,
+              closeReason: "adjustment",
+            };
+          });
 
-            const pnlStr = (pnl >= 0 ? "+" : "") + "$" + Math.abs(pnl).toFixed(2)
+          // Actualizar localStorage (DB já está correcto — não enviar DELETE)
+          tradeStore.closeBatch(closures);
+
+          // Notificações
+          openPositions.forEach((pos, i) => {
+            const pnl = pnls[i] ?? 0;
+            const pnlStr =
+              (pnl >= 0 ? "+" : "") + "$" + Math.abs(pnl).toFixed(2);
             notificationStore.add(
               "trade_close",
               `Posição fechada — ${pos.symbol}`,
               `${pos.type === "buy" ? "Compra" : "Venda"} encerrada | P&L ${pnlStr}`,
-            )
-          })
-
-          // ─── CRÍTICO: resetar epoch após fechar ghost trades ──────────────
-          // Sem isto: balance = adminSetBalance + (ghostPnL - 0) = valor errado.
-          // Com epoch = realizedPnL actual (inclui os ghost trades acabados de fechar),
-          // deltaPnl = realizedPnl - epoch = 0 → balance = adminSetBalance exacto.
-          if (accountStore.getMode() === "real") {
-            const newRealizedPnl = tradeStore.getClosed().reduce((s, p) => s + p.pnl, 0)
-            accountStore.setBalanceEpoch(newRealizedPnl)
-          }
-
-        } else if (payload.mode === "close_open" && n === 0 && payload.trades && payload.trades.length > 0) {
-          // Sem posições abertas → adicionar operações ao histórico como prova
-          // Usa trades pré-gerados pelo servidor (fallback)
-          const now = new Date().toISOString()
-          payload.trades.forEach(trade => {
-            tradeStore.addClosedFromRemote({
-              id:           trade.id,
-              symbol:       trade.symbol,
-              asset_name:   trade.symbol,
-              type:         trade.type,
-              lots:         trade.lots,
-              amount:       trade.amount,
-              leverage:     trade.leverage,
-              open_price:   trade.openPrice,
-              close_price:  trade.closePrice,
-              pnl:          trade.pnl,
-              opened_at:    trade.openedAt,
-              closed_at:    trade.closedAt ?? now,
-              close_reason: trade.closeReason,
-            })
-          })
-          if (payload.trades.length > 0) {
-            const total = payload.trades.reduce((s, t) => s + t.pnl, 0)
-            const pnlStr = (total >= 0 ? "+" : "") + "$" + Math.abs(total).toFixed(2)
-            notificationStore.add(
-              "trade_close",
-              `Operações encerradas`,
-              `${payload.trades.length} operação(ões) registada(s) | P&L total ${pnlStr}`,
-            )
-          }
-
-          // ─── CRÍTICO: resetar epoch também no caso sem posições abertas ──
-          // Sem isto: balance = adminSetBalance + (ghostPnL - oldEpoch) → dupla contagem.
-          // Com epoch = realizedPnL actual (inclui os ghost trades de histórico):
-          //   deltaPnl = realizedPnl - epoch = 0 → balance = adminSetBalance exacto.
-          if (accountStore.getMode() === "real") {
-            const newRealizedPnl = tradeStore.getClosed().reduce((s, p) => s + p.pnl, 0)
-            accountStore.setBalanceEpoch(newRealizedPnl)
-          }
+            );
+          });
         }
-        // Se não há posições abertas e nem trades: saldo já actualizado no DB — nada a fazer
+        // n === 0: saldo já actualizado no DB pela stats poll — nada a fazer
       } catch {
         // falha silenciosa — próximo ciclo tenta de novo
       }
     }
 
     fetchGhostTrades();
-    pollRef.current = setInterval(fetchGhostTrades, 5_000);
+    pollRef.current = setInterval(fetchGhostTrades, 1_200);
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -267,7 +270,7 @@ export default function DashboardLayout({
     }
 
     syncPositions();
-    const syncId = setInterval(syncPositions, 60_000);
+    const syncId = setInterval(syncPositions, 8_000);
     return () => clearInterval(syncId);
   }, [ready]);
 
@@ -317,12 +320,115 @@ export default function DashboardLayout({
     };
   }, [ready]);
 
+  // ── Presença online/offline para CRM admin ─────────────────────────────────
+  useEffect(() => {
+    if (!ready) return;
+
+    async function pingPresence(action: "ping" | "offline" = "ping") {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+
+        await fetch("/api/user/presence", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ action }),
+        });
+      } catch {
+        // silencioso
+      }
+    }
+
+    pingPresence("ping");
+    presenceRef.current = setInterval(() => pingPresence("ping"), 25_000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") pingPresence("ping");
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    const onBeforeUnload = () => {
+      try {
+        const payload = new Blob([JSON.stringify({ action: "offline" })], {
+          type: "application/json",
+        });
+        navigator.sendBeacon("/api/user/presence", payload);
+      } catch {
+        // silencioso
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (presenceRef.current) clearInterval(presenceRef.current);
+      pingPresence("offline");
+    };
+  }, [ready]);
+
+  // ── Presença em tempo real (Supabase Realtime Presence) ───────────────────
+  useEffect(() => {
+    if (!ready) return;
+
+    let cancelled = false;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user || cancelled) return;
+
+      const channel = supabase.channel("crm-presence", {
+        config: { presence: { key: user.id } },
+      });
+
+      const trackNow = async () => {
+        await channel.track({
+          userId: user.id,
+          email: user.email ?? "",
+          ts: Date.now(),
+        });
+      };
+
+      channel.subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await trackNow();
+          if (realtimeTrackRef.current) clearInterval(realtimeTrackRef.current);
+          realtimeTrackRef.current = setInterval(() => {
+            trackNow().catch(() => {
+              // silencioso
+            });
+          }, 20_000);
+        }
+      });
+
+      realtimePresenceRef.current = channel;
+    });
+
+    return () => {
+      cancelled = true;
+      if (realtimeTrackRef.current) {
+        clearInterval(realtimeTrackRef.current);
+        realtimeTrackRef.current = null;
+      }
+      if (realtimePresenceRef.current) {
+        supabase.removeChannel(realtimePresenceRef.current);
+        realtimePresenceRef.current = null;
+      }
+    };
+  }, [ready]);
+
   if (!ready) {
     return (
       <div className="min-h-dvh flex items-center justify-center bg-[oklch(0.115_0.038_265)]">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 rounded-full border-2 border-[oklch(0.55_0.22_265)] border-t-transparent animate-spin" />
-          <p className="text-sm text-[oklch(0.65_0.018_255)]">A carregar sessão…</p>
+          <p className="text-sm text-[oklch(0.65_0.018_255)]">
+            A carregar sessão…
+          </p>
         </div>
       </div>
     );

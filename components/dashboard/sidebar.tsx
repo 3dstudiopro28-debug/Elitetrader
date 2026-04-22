@@ -68,7 +68,9 @@ export function DashboardSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
-  const [mode, setModeState] = useState<AccountMode>("demo");
+  const [mode, setModeState] = useState<AccountMode>(() =>
+    accountStore.getMode(),
+  );
   const [copied, setCopied] = useState(false);
   const [demoId, setDemoId] = useState("ET-00001");
   const [realId, setRealId] = useState("RLT-00001");
@@ -148,9 +150,10 @@ export function DashboardSidebar({
     },
   ];
 
-  // Profile completion steps (will grow once DB integration done)
-  const STEPS_DONE = 1;
+  // Profile completion: 4/4 se conta activada (saldo > 0), 2/4 se tem nome, 1/4 caso base
+  const dbBal = accountStore.getDBBalance(mode);
   const STEPS_TOTAL = 4;
+  const STEPS_DONE = dbBal !== null && dbBal > 0 ? 4 : userName ? 2 : 1;
 
   const refresh = useCallback(() => {
     setModeState(accountStore.getMode());
@@ -224,6 +227,7 @@ export function DashboardSidebar({
   function toggleMode() {
     const next: AccountMode = mode === "demo" ? "real" : "demo";
     accountStore.setMode(next);
+    setModeState(next);
   }
 
   const handleLogout = useCallback(async () => {
@@ -244,13 +248,14 @@ export function DashboardSidebar({
   }
 
   // Balance display — usa saldo do DB (separado por modo) + PnL realizado local
-  // Modo real: igual ao header — aplica epoch para isolar trades históricos
+  // Modo real: apenas trades do utilizador (não adjustment) afectam o saldo
   const balance = (() => {
     const closed = tradeStore.getClosed();
-    const realized = closed.reduce((s, p) => s + p.pnl, 0);
+    const realized = closed
+      .filter((p) => p.closeReason !== "adjustment")
+      .reduce((s, p) => s + p.pnl, 0);
     const dbBal = accountStore.getDBBalance(mode);
     if (mode === "real") {
-      // Conta real: mesmo cálculo do header — apenas PnL APÓS última definição de saldo pelo admin
       const epoch = accountStore.getBalanceEpoch();
       return (dbBal ?? 0) + (realized - epoch);
     }

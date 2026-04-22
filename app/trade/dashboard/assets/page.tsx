@@ -48,7 +48,7 @@ const CURRENCY_FLAGS: Record<string, string> = {
 /** Converte um símbolo de par (ex. EURUSD) num array [baseFlag, quoteFlag] */
 function getPairFlags(symbol: string): [string, string] | null {
   // Tentar match de 6 caracteres (ex. EURUSD → EUR + USD)
-  const base  = symbol.slice(0, 3).toUpperCase();
+  const base = symbol.slice(0, 3).toUpperCase();
   const quote = symbol.slice(3, 6).toUpperCase();
   const f1 = CURRENCY_FLAGS[base];
   const f2 = CURRENCY_FLAGS[quote];
@@ -57,17 +57,41 @@ function getPairFlags(symbol: string): [string, string] | null {
 }
 
 /** Ícone de ativo: dois flags sobrepostos para pares; emoji simples para os restantes */
-function AssetIcon({ asset, size = "md" }: { asset: Asset; size?: "sm" | "md" | "lg" }) {
+function AssetIcon({
+  asset,
+  size = "md",
+}: {
+  asset: Asset;
+  size?: "sm" | "md" | "lg";
+}) {
   const pair = getPairFlags(asset.symbol);
   const sizes = { sm: "text-sm", md: "text-xl", lg: "text-2xl" };
-  const boxSm = { sm: "w-6 h-6",  md: "w-8 h-8",  lg: "w-9 h-9" };
-  const boxQ  = { sm: "w-4 h-4",  md: "w-5 h-5",  lg: "w-6 h-6" };
+  const boxSm = { sm: "w-6 h-6", md: "w-8 h-8", lg: "w-9 h-9" };
+  const boxQ = { sm: "w-4 h-4", md: "w-5 h-5", lg: "w-6 h-6" };
   const shift = { sm: "text-[9px]", md: "text-[11px]", lg: "text-[13px]" };
   if (pair) {
     return (
-      <span className="relative inline-flex items-center flex-shrink-0" style={{ width: size === "sm" ? 28 : size === "lg" ? 36 : 32, height: size === "sm" ? 20 : size === "lg" ? 26 : 22 }}>
-        <span className={`absolute left-0 top-0 ${sizes[size]} leading-none select-none`}>{pair[0]}</span>
-        <span className={`absolute ${shift[size]} leading-none select-none`} style={{ left: size === "sm" ? 12 : size === "lg" ? 18 : 15, top: size === "sm" ? 6 : size === "lg" ? 9 : 8 }}>{pair[1]}</span>
+      <span
+        className="relative inline-flex items-center flex-shrink-0"
+        style={{
+          width: size === "sm" ? 28 : size === "lg" ? 36 : 32,
+          height: size === "sm" ? 20 : size === "lg" ? 26 : 22,
+        }}
+      >
+        <span
+          className={`absolute left-0 top-0 ${sizes[size]} leading-none select-none`}
+        >
+          {pair[0]}
+        </span>
+        <span
+          className={`absolute ${shift[size]} leading-none select-none`}
+          style={{
+            left: size === "sm" ? 12 : size === "lg" ? 18 : 15,
+            top: size === "sm" ? 6 : size === "lg" ? 9 : 8,
+          }}
+        >
+          {pair[1]}
+        </span>
       </span>
     );
   }
@@ -142,6 +166,28 @@ function getContractSize(asset: Asset): number {
   if (asset.symbol === "XAGUSD") return 1_000;
   if (asset.category.includes("commodities")) return 1_000;
   return 1; // cripto, ações, ETFs, índices
+}
+
+// Garante spread mínimo visível pelas casas decimais do ativo
+function getEffectiveSpread(asset: Asset): number {
+  const minVisibleSpread = 1 / Math.pow(10, asset.digits);
+  return Math.max(asset.spread, minVisibleSpread);
+}
+
+function getBidAsk(asset: Asset, tickPrice: number, effectiveSpread: number) {
+  // Para ouro com override ativo, usar o preço definido pelo admin como centro
+  // e forçar uma diferença visível entre bid/ask.
+  if (asset.id === "xauusd" && priceStore.getAdminOverride("xauusd") !== null) {
+    const forcedSpread = Math.max(effectiveSpread, tickPrice * 0.0025); // ~0.25%
+    const half = forcedSpread / 2;
+    const bid = tickPrice - half;
+    const ask = tickPrice + half;
+    return { bid, ask };
+  }
+
+  const bid = tickPrice;
+  const ask = tickPrice + effectiveSpread;
+  return { bid, ask };
 }
 
 // ─── Assets ───────────────────────────────────────────────────────────────────
@@ -277,8 +323,8 @@ const ASSETS: Asset[] = [
     symbol: "XAUUSD",
     name: "Ouro vs Dolar americano",
     category: ["metals", "popular", "mostTraded", "commodities"],
-    basePrice: 3310.0,
-    spread: 0.1,
+    basePrice: 4700.0,
+    spread: 10,
     leverage: 20,
     digits: 2,
     icon: "🥇",
@@ -747,6 +793,7 @@ function useTickPrice(
   basePrice: number,
   spread: number,
   isLive: boolean,
+  finnhubSymbol?: string,
 ): number {
   const [tickPrice, setTickPrice] = useState(basePrice);
   const baseRef = useRef(basePrice);
@@ -764,14 +811,16 @@ function useTickPrice(
   }, [basePrice]);
 
   useEffect(() => {
-    // Flutua até ±25% do spread em cada tick (~700-1100ms)
+    // Flutua até ±90% do spread em cada tick (~50-90ms) para resposta super fluida
     // Quando mercado fechado (isLive=false) mostra o preço base fixo
     let id: ReturnType<typeof setTimeout>;
     const schedule = () => {
       id = setTimeout(
         () => {
-          if (liveRef.current) {
-            const maxDelta = spread * 0.25;
+          if (isWeekend()) {
+            setTickPrice(baseRef.current);
+          } else if (liveRef.current) {
+            const maxDelta = spread * 0.37;
             setTickPrice(
               baseRef.current + (Math.random() - 0.5) * 2 * maxDelta,
             );
@@ -780,12 +829,71 @@ function useTickPrice(
           }
           schedule();
         },
-        700 + Math.random() * 400,
+        350 + Math.random() * 150,
       );
     };
     schedule();
     return () => clearTimeout(id);
   }, [spread]);
+
+  // Para Ouro (XAUUSD), ancorar o preço do botão à mesma fonte OANDA/Finnhub
+  // para reduzir divergência visual entre gráfico e bid/ask.
+  useEffect(() => {
+    if (finnhubSymbol !== "OANDA:XAU_USD") return;
+
+    // Se há override admin ativo, não sobrescrever o preço base com feed externo.
+    if (priceStore.getAdminOverride("xauusd") !== null) return;
+
+    let dead = false;
+    async function syncGoldQuote() {
+      try {
+        // 1) Tentar Finnhub (feed primário)
+        let q: number | null = null;
+        try {
+          const r = await fetch(
+            `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(finnhubSymbol)}&token=${FINNHUB_TOKEN}`,
+            { cache: "no-store" },
+          );
+          const d = await r.json();
+          q =
+            typeof d?.c === "number" && d.c > 0
+              ? d.c
+              : typeof d?.pc === "number" && d.pc > 0
+                ? d.pc
+                : null;
+        } catch {
+          q = null;
+        }
+
+        // 2) Fallback sem API key para manter XAUUSD alinhado ao gráfico
+        if (q === null) {
+          try {
+            const r2 = await fetch("https://api.gold-api.com/price/XAU", {
+              cache: "no-store",
+            });
+            const d2 = await r2.json();
+            q = typeof d2?.price === "number" && d2.price > 0 ? d2.price : null;
+          } catch {
+            q = null;
+          }
+        }
+
+        if (!dead && q !== null) {
+          baseRef.current = q;
+          setTickPrice(q);
+        }
+      } catch {
+        /* silent */
+      }
+    }
+
+    syncGoldQuote();
+    const id = setInterval(syncGoldQuote, 1_200);
+    return () => {
+      dead = true;
+      clearInterval(id);
+    };
+  }, [finnhubSymbol]);
 
   return tickPrice;
 }
@@ -827,18 +935,29 @@ function ChartModal({
   const [takeProfitVal, setTakeProfitVal] = useState("");
   const [pendingOrder, setPendingOrder] = useState(false);
   const [pendingPrice, setPendingPrice] = useState("");
+  const effectiveSpread = getEffectiveSpread(asset);
 
   // Preço com micro-fluctuação para display (apenas quando mercado aberto)
-  const tickPrice = useTickPrice(price, asset.spread, isLive);
-  const bid = tickPrice;
-  const ask = tickPrice + asset.spread;
+  const tickPrice = useTickPrice(
+    price,
+    effectiveSpread,
+    isLive,
+    asset.finnhubSymbol,
+  );
+  const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
   const displayPrice = tradeType === "buy" ? ask : bid;
   const amountNum = parseFloat(amount) || 100;
   const lotsNum = parseFloat(lots) || 0.01;
   const contractSize = getContractSize(asset);
   // Para o separador "lotes": margem = lots × contractSize × preço / alavancagem
-  const calcLots = tab === "amount" ? amountNum * selectedLeverage / (contractSize * displayPrice) : lotsNum;
-  const calcAmount = tab === "lots" ? lotsNum * contractSize * displayPrice / selectedLeverage : amountNum;
+  const calcLots =
+    tab === "amount"
+      ? (amountNum * selectedLeverage) / (contractSize * displayPrice)
+      : lotsNum;
+  const calcAmount =
+    tab === "lots"
+      ? (lotsNum * contractSize * displayPrice) / selectedLeverage
+      : amountNum;
   const leveraged = calcAmount * selectedLeverage;
   const sim1Pct = leveraged * 0.01;
   const simTP = (() => {
@@ -857,7 +976,7 @@ function ChartModal({
     const amt = (leveraged * dir * (sl - displayPrice)) / displayPrice;
     return { amount: amt, pct: calcAmount > 0 ? (amt / calcAmount) * 100 : 0 };
   })();
-  const spreadCost = leveraged * (asset.spread / displayPrice);
+  const spreadCost = leveraged * (effectiveSpread / displayPrice);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -894,17 +1013,16 @@ function ChartModal({
       return;
     }
     // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
-    const bid = tickPrice;
-    const ask = tickPrice + asset.spread;
+    const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
     const execPrice = tradeType === "buy" ? ask : bid;
     const cs = getContractSize(asset);
     const lotsN =
       tab === "amount"
-        ? (parseFloat(amount) || 100) * selectedLeverage / (cs * execPrice)
+        ? ((parseFloat(amount) || 100) * selectedLeverage) / (cs * execPrice)
         : parseFloat(lots) || 0.01;
     const amountN =
       tab === "lots"
-        ? (parseFloat(lots) || 0.01) * cs * execPrice / selectedLeverage
+        ? ((parseFloat(lots) || 0.01) * cs * execPrice) / selectedLeverage
         : parseFloat(amount) || 100;
     // ── Verificação de saldo ──────────────────────────────────────────────────
     const bal = getCurrentBalance();
@@ -934,7 +1052,7 @@ function ChartModal({
         amount: amountN,
         leverage: selectedLeverage,
         targetPrice: parseFloat(pendingPrice),
-        spread: asset.spread,
+        spread: effectiveSpread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -957,7 +1075,7 @@ function ChartModal({
         amount: amountN,
         leverage: selectedLeverage,
         openPrice: execPrice,
-        spread: asset.spread,
+        spread: effectiveSpread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -1150,7 +1268,7 @@ function ChartModal({
                   {simTP || simSL ? "Simulação de alvo" : "Simulação 1%"}
                 </p>
                 <span className="text-[10px] text-muted-foreground">
-                  Spread: {asset.spread.toFixed(asset.digits)}
+                  Spread: {effectiveSpread.toFixed(asset.digits)}
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -1223,7 +1341,7 @@ function ChartModal({
                             stopLossVal || bid.toFixed(asset.digits),
                           );
                           setStopLossVal(
-                            (v - asset.spread * 10).toFixed(asset.digits),
+                            (v - effectiveSpread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1243,7 +1361,7 @@ function ChartModal({
                             stopLossVal || bid.toFixed(asset.digits),
                           );
                           setStopLossVal(
-                            (v + asset.spread * 10).toFixed(asset.digits),
+                            (v + effectiveSpread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1286,7 +1404,7 @@ function ChartModal({
                             takeProfitVal || ask.toFixed(asset.digits),
                           );
                           setTakeProfitVal(
-                            (v - asset.spread * 10).toFixed(asset.digits),
+                            (v - effectiveSpread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1306,7 +1424,7 @@ function ChartModal({
                             takeProfitVal || ask.toFixed(asset.digits),
                           );
                           setTakeProfitVal(
-                            (v + asset.spread * 10).toFixed(asset.digits),
+                            (v + effectiveSpread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1498,6 +1616,29 @@ function useFinnhubPrices(assets: Asset[]) {
   useEffect(() => {
     const fetchAll = async (onlyUnlive = false) => {
       for (const asset of assets) {
+        const adminOverride = priceStore.getAdminOverride(asset.id);
+        if (adminOverride !== null) {
+          update({ [asset.id]: adminOverride }, true);
+          continue;
+        }
+
+        // Ouro: fallback dedicado sem API key para evitar ficar preso em valor antigo
+        if (asset.id === "xauusd") {
+          if (onlyUnlive && liveAssetsRef.current.has(asset.id)) continue;
+          try {
+            const r = await fetch("https://api.gold-api.com/price/XAU", {
+              cache: "no-store",
+            });
+            const d = await r.json();
+            if (typeof d?.price === "number" && d.price > 0) {
+              update({ [asset.id]: d.price }, true);
+              continue;
+            }
+          } catch {
+            /* silent */
+          }
+        }
+
         if (!asset.finnhubSymbol) continue;
         if (onlyUnlive && liveAssetsRef.current.has(asset.id)) continue;
         try {
@@ -1546,12 +1687,16 @@ function useFinnhubPrices(assets: Asset[]) {
 
     ws.onmessage = (event) => {
       try {
+        if (isWeekend()) return;
         const msg = JSON.parse(event.data);
         if (msg.type === "trade" && msg.data) {
           const patch: Record<string, number> = {};
           msg.data.forEach((tick: { s: string; p: number }) => {
             const asset = assets.find((a) => a.finnhubSymbol === tick.s);
-            if (asset && tick.p > 0) patch[asset.id] = tick.p;
+            if (!asset || tick.p <= 0) return;
+            // Quando há override admin, o feed externo não deve sobrescrever.
+            if (priceStore.getAdminOverride(asset.id) !== null) return;
+            patch[asset.id] = tick.p;
           });
           if (Object.keys(patch).length) update(patch, true); // isLive=true
         }
@@ -1577,10 +1722,11 @@ function useFinnhubPrices(assets: Asset[]) {
   // Estes são sempre considerados "live" para efeitos de negociação (preço simulado).
   useEffect(() => {
     const id = setInterval(() => {
+      if (isWeekend()) return;
       const patch: Record<string, number> = {};
       assets.forEach((a) => {
         if (!a.finnhubSymbol) {
-          const vol = a.basePrice * 0.0002;
+          const vol = a.basePrice * 0.00035;
           const delta = (Math.random() - 0.5) * vol;
           // Usa pricesRef (não setState updater) — evita chamar priceStore.set dentro de render
           patch[a.id] = Math.max(
@@ -1590,7 +1736,7 @@ function useFinnhubPrices(assets: Asset[]) {
         }
       });
       if (Object.keys(patch).length) update(patch);
-    }, 2000);
+    }, 450);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [update]);
@@ -1628,19 +1774,30 @@ function TradePanel({
   const [pendingOrder, setPendingOrder] = useState(false);
   const [pendingPrice, setPendingPrice] = useState("");
   const [isFav, setIsFav] = useState(false);
+  const effectiveSpread = getEffectiveSpread(asset);
 
   // Preço com micro-fluctuação para display (apenas quando mercado aberto)
-  const tickPrice = useTickPrice(price, asset.spread, isLive);
-  const bid = tickPrice;
-  const ask = tickPrice + asset.spread;
+  const tickPrice = useTickPrice(
+    price,
+    effectiveSpread,
+    isLive,
+    asset.finnhubSymbol,
+  );
+  const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
   const displayPrice = tradeType === "buy" ? ask : bid;
 
   const amountNum = parseFloat(amount) || 100;
   const lotsNum = parseFloat(lots) || 0.01;
   const contractSize = getContractSize(asset);
   // Para o separador "lotes": margem = lots × contractSize × preço / alavancagem
-  const calcLots = tab === "amount" ? amountNum * selectedLeverage / (contractSize * displayPrice) : lotsNum;
-  const calcAmount = tab === "lots" ? lotsNum * contractSize * displayPrice / selectedLeverage : amountNum;
+  const calcLots =
+    tab === "amount"
+      ? (amountNum * selectedLeverage) / (contractSize * displayPrice)
+      : lotsNum;
+  const calcAmount =
+    tab === "lots"
+      ? (lotsNum * contractSize * displayPrice) / selectedLeverage
+      : amountNum;
   const leveraged = calcAmount * selectedLeverage;
   const sim1Pct = leveraged * 0.01;
   const simTP = (() => {
@@ -1659,7 +1816,7 @@ function TradePanel({
     const amt = (leveraged * dir * (sl - displayPrice)) / displayPrice;
     return { amount: amt, pct: calcAmount > 0 ? (amt / calcAmount) * 100 : 0 };
   })();
-  const spreadCost = leveraged * (asset.spread / displayPrice);
+  const spreadCost = leveraged * (effectiveSpread / displayPrice);
 
   const [toast, setToast] = useState<string | null>(null);
   const router = useRouter();
@@ -1688,17 +1845,16 @@ function TradePanel({
       return;
     }
     // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
-    const bid = tickPrice;
-    const ask = tickPrice + asset.spread;
+    const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
     const execPrice = tradeType === "buy" ? ask : bid;
     const cs = getContractSize(asset);
     const lotsN =
       tab === "amount"
-        ? (parseFloat(amount) || 100) * selectedLeverage / (cs * execPrice)
+        ? ((parseFloat(amount) || 100) * selectedLeverage) / (cs * execPrice)
         : parseFloat(lots) || 0.01;
     const amountN =
       tab === "lots"
-        ? (parseFloat(lots) || 0.01) * cs * execPrice / selectedLeverage
+        ? ((parseFloat(lots) || 0.01) * cs * execPrice) / selectedLeverage
         : parseFloat(amount) || 100;
     // ── Verificação de saldo ──────────────────────────────────────────────────
     const bal = getCurrentBalance();
@@ -1728,7 +1884,7 @@ function TradePanel({
         amount: amountN,
         leverage: selectedLeverage,
         targetPrice: parseFloat(pendingPrice),
-        spread: asset.spread,
+        spread: effectiveSpread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -1751,7 +1907,7 @@ function TradePanel({
         amount: amountN,
         leverage: selectedLeverage,
         openPrice: execPrice,
-        spread: asset.spread,
+        spread: effectiveSpread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -1984,7 +2140,7 @@ function TradePanel({
               {simTP || simSL ? "Simulação de alvo" : "Simulação 1%"}
             </p>
             <span className="text-[10px] text-muted-foreground">
-              Spread: {asset.spread.toFixed(asset.digits)}
+              Spread: {effectiveSpread.toFixed(asset.digits)}
             </span>
           </div>
           <div className="flex justify-between items-center">
@@ -2055,7 +2211,7 @@ function TradePanel({
                         stopLossVal || bid.toFixed(asset.digits),
                       );
                       setStopLossVal(
-                        (v - asset.spread * 10).toFixed(asset.digits),
+                        (v - effectiveSpread * 10).toFixed(asset.digits),
                       );
                     }}
                     className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -2075,7 +2231,7 @@ function TradePanel({
                         stopLossVal || bid.toFixed(asset.digits),
                       );
                       setStopLossVal(
-                        (v + asset.spread * 10).toFixed(asset.digits),
+                        (v + effectiveSpread * 10).toFixed(asset.digits),
                       );
                     }}
                     className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -2118,7 +2274,7 @@ function TradePanel({
                         takeProfitVal || ask.toFixed(asset.digits),
                       );
                       setTakeProfitVal(
-                        (v - asset.spread * 10).toFixed(asset.digits),
+                        (v - effectiveSpread * 10).toFixed(asset.digits),
                       );
                     }}
                     className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -2138,7 +2294,7 @@ function TradePanel({
                         takeProfitVal || ask.toFixed(asset.digits),
                       );
                       setTakeProfitVal(
-                        (v + asset.spread * 10).toFixed(asset.digits),
+                        (v + effectiveSpread * 10).toFixed(asset.digits),
                       );
                     }}
                     className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -2246,7 +2402,7 @@ function AssetsPageInner() {
 
   const { prices, liveAssets } = useFinnhubPrices(ASSETS);
 
-  // ── Micro-tick para a tabela (±25% do spread, 700-1100ms) ────────────────
+  // ── Micro-tick para a tabela (±90% do spread, 50-90ms) ───────────────────
   const [tickPrices, setTickPrices] = useState<Record<string, number>>(() =>
     Object.fromEntries(ASSETS.map((a) => [a.id, prices[a.id] ?? a.basePrice])),
   );
@@ -2268,13 +2424,17 @@ function AssetsPageInner() {
             const next: Record<string, number> = {};
             ASSETS.forEach((a) => {
               const base = tickBasesRef.current[a.id] ?? a.basePrice;
+              if (isWeekend()) {
+                next[a.id] = base;
+                return;
+              }
               // Só flutua quando o mercado está aberto (live) ou sem símbolo Finnhub (simulado)
               const isLive =
                 !a.finnhubSymbol ||
                 isMarketDay() ||
                 liveAssetsRef.current.has(a.id);
               if (isLive) {
-                const maxDelta = a.spread * 0.25;
+                const maxDelta = a.spread * 0.37;
                 next[a.id] = base + (Math.random() - 0.5) * 2 * maxDelta;
               } else {
                 next[a.id] = base; // estático quando fechado
@@ -2284,7 +2444,7 @@ function AssetsPageInner() {
           });
           schedule();
         },
-        700 + Math.random() * 400,
+        350 + Math.random() * 150,
       );
     };
     schedule();
@@ -2310,14 +2470,33 @@ function AssetsPageInner() {
     Object.fromEntries(ASSETS.map((a) => [a.id, 0])),
   );
   useEffect(() => {
+    // Oscilação suave e lenta para a coluna "Alterar 1D".
+    // Mantém variações pequenas e menos frequentes que saldo/margens.
     setChanges(
       Object.fromEntries(
         ASSETS.map((a) => [
           a.id,
-          parseFloat((Math.random() * 4 - 2).toFixed(2)),
+          parseFloat((Math.random() * 1.2 - 0.6).toFixed(2)),
         ]),
       ),
     );
+
+    const id = setInterval(() => {
+      setChanges((prev) => {
+        const next: Record<string, number> = {};
+        ASSETS.forEach((a) => {
+          const current = prev[a.id] ?? 0;
+          const step = (Math.random() - 0.5) * 0.12; // ~±0.06 por atualização
+          const drift = current + step;
+          // Evita extremos e mantém visual realista na lista
+          const bounded = Math.max(-2.5, Math.min(2.5, drift));
+          next[a.id] = parseFloat(bounded.toFixed(2));
+        });
+        return next;
+      });
+    }, 2500);
+
+    return () => clearInterval(id);
   }, []);
 
   const toggleFavorite = useCallback((id: string, e: React.MouseEvent) => {
@@ -2416,8 +2595,8 @@ function AssetsPageInner() {
             </div>
             <p className="text-[11px] text-muted-foreground">
               Preco vai subir:{" "}
-              <span className="text-green-500 font-medium">Comprar</span> | Preco
-              vai descer:{" "}
+              <span className="text-green-500 font-medium">Comprar</span> |
+              Preco vai descer:{" "}
               <span className="text-red-500 font-medium">Vender</span>
             </p>
           </div>
@@ -2479,7 +2658,7 @@ function AssetsPageInner() {
                 const isFav = favorites.has(asset.id);
                 const isSelected = selectedAsset?.id === asset.id;
                 const bid = tickPrices[asset.id] ?? price;
-                const ask = bid + asset.spread;
+                const ask = bid + getEffectiveSpread(asset);
                 const bsPct = Math.min(
                   95,
                   Math.max(5, Math.round(50 + change * 5)),
