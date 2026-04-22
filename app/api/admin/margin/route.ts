@@ -18,7 +18,7 @@ let marginOverride: number | null = null
 let balanceAdd: number = 0
 
 export async function GET(req: NextRequest) {
-  const unauth = requireAdmin(req)
+  const unauth = await requireAdmin(req)
   if (unauth) return unauth
   // TODO: Fetch from DB: SELECT value FROM admin_settings WHERE key='margin_level_override'
   return NextResponse.json({
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const unauth = requireAdmin(req)
+  const unauth = await requireAdmin(req)
   if (unauth) return unauth
   try {
     const body = await req.json()

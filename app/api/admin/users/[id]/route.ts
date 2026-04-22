@@ -21,8 +21,15 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const unauth = requireAdmin(req);
+  const unauth = await requireAdmin(req);
   if (unauth) return unauth;
+
+  if (!hasServiceRole()) {
+    return NextResponse.json(
+      { error: "SUPABASE_SERVICE_ROLE_KEY não configurada" },
+      { status: 503 },
+    );
+  }
 
   const { id } = await params;
 
@@ -63,8 +70,15 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const unauth = requireAdmin(req);
+  const unauth = await requireAdmin(req);
   if (unauth) return unauth;
+
+  if (!hasServiceRole()) {
+    return NextResponse.json(
+      { error: "SUPABASE_SERVICE_ROLE_KEY não configurada" },
+      { status: 503 },
+    );
+  }
 
   const { id } = await params;
 
@@ -358,8 +372,15 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const unauth = requireAdmin(req);
+  const unauth = await requireAdmin(req);
   if (unauth) return unauth;
+
+  if (!hasServiceRole()) {
+    return NextResponse.json(
+      { error: "SUPABASE_SERVICE_ROLE_KEY não configurada" },
+      { status: 503 },
+    );
+  }
 
   const { id } = await params;
 

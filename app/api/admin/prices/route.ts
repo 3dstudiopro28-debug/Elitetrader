@@ -12,14 +12,14 @@ import { adminPriceStore } from "@/lib/admin-price-store";
 import { requireAdmin } from "@/lib/admin-auth";
 
 export async function GET(req: NextRequest) {
-  const unauth = requireAdmin(req);
+  const unauth = await requireAdmin(req);
   if (unauth) return unauth;
 
   return NextResponse.json({ success: true, prices: adminPriceStore.getAll() });
 }
 
 export async function POST(req: NextRequest) {
-  const unauth = requireAdmin(req);
+  const unauth = await requireAdmin(req);
   if (unauth) return unauth;
 
   try {
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const unauth = requireAdmin(req);
+  const unauth = await requireAdmin(req);
   if (unauth) return unauth;
 
   try {

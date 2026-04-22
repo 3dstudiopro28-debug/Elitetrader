@@ -106,8 +106,15 @@ function normalizeUser(
 
 // ─── GET /api/admin/users ─────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const unauth = requireAdmin(req);
+  const unauth = await requireAdmin(req);
   if (unauth) return unauth;
+
+  if (!hasServiceRole()) {
+    return NextResponse.json(
+      { error: "SUPABASE_SERVICE_ROLE_KEY não configurada" },
+      { status: 503 },
+    );
+  }
 
   const { searchParams } = new URL(req.url);
   const search = searchParams.get("q")?.toLowerCase() ?? "";
@@ -207,8 +214,15 @@ export async function GET(req: NextRequest) {
 
 // ─── POST /api/admin/users ────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  const unauth = requireAdmin(req);
+  const unauth = await requireAdmin(req);
   if (unauth) return unauth;
+
+  if (!hasServiceRole()) {
+    return NextResponse.json(
+      { error: "SUPABASE_SERVICE_ROLE_KEY não configurada" },
+      { status: 503 },
+    );
+  }
 
   try {
     const body = await req.json();
