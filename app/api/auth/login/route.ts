@@ -1,10 +1,43 @@
 /**
  * POST /api/auth/login
  * Autentica com Supabase + devolve cookie de sessão
+ *
+ * GET /api/auth/login
+ * Renova o cookie sb-access-token com o token Bearer do SDK (auto-refresh).
+ * Chamado pelo dashboard quando o SDK renova o access token.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
+
+/**
+ * GET — actualiza o cookie httpOnly com o token fresco do SDK do browser.
+ * Chamado sempre que o SDK renova o access token (evento TOKEN_REFRESHED).
+ */
+export async function GET(req: NextRequest) {
+  const auth = req.headers.get("authorization");
+  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+
+  if (!token) return NextResponse.json({ ok: false }, { status: 400 });
+
+  const sb = createServerClient(token);
+  const {
+    data: { user },
+    error,
+  } = await sb.auth.getUser(token);
+
+  if (error || !user) return NextResponse.json({ ok: false }, { status: 401 });
+
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set("sb-access-token", token, {
+    httpOnly: true,
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+  return res;
+}
 
 async function ensureRealModeBootstrap(
   sb: ReturnType<typeof createServerClient>,

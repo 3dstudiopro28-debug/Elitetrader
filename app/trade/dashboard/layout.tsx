@@ -50,6 +50,17 @@ export default function DashboardLayout({
   > | null>(null);
   const realtimeTrackRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  /** Obtém o access token fresco do SDK (auto-renovado via refresh_token). */
+  async function getAuthToken(): Promise<Record<string, string>> {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      return { Authorization: `Bearer ${session.access_token}` };
+    }
+    return {};
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
@@ -74,7 +85,19 @@ export default function DashboardLayout({
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // Quando o SDK renova o token, sincronizar com o cookie httpOnly que as API routes lêem
+      if (
+        (event === "TOKEN_REFRESHED" || event === "SIGNED_IN") &&
+        session?.access_token
+      ) {
+        fetch("/api/auth/login", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          credentials: "include",
+        }).catch(() => {});
+      }
+
       if (event === "SIGNED_OUT") {
         // Preservar o modo (demo/real) para o próximo login, apagar o resto.
         try {
@@ -106,9 +129,11 @@ export default function DashboardLayout({
         "PASSO 1: [FRONTEND] A função syncOpenPositionsFromDB foi chamada.",
       );
       try {
+        const authHeaders = await getAuthToken();
         const response = await fetch("/api/positions?status=open", {
           credentials: "include",
           cache: "no-store",
+          headers: authHeaders,
         });
 
         console.log(
@@ -139,14 +164,18 @@ export default function DashboardLayout({
     // ── Sync cross-device: buscar histórico de posições fechadas ─────────────
     async function syncClosedPositionsFromDB() {
       try {
+        const authHeaders = await getAuthToken();
         const response = await fetch("/api/positions?status=closed", {
           credentials: "include",
           cache: "no-store",
+          headers: authHeaders,
         });
         if (!response.ok) return;
         const json = await response.json();
         if (json.data && Array.isArray(json.data)) {
-          tradeStore.loadClosedPositions(json.data as Record<string, unknown>[]);
+          tradeStore.loadClosedPositions(
+            json.data as Record<string, unknown>[],
+          );
         }
       } catch {
         // silencioso — histórico não é crítico para o arranque
@@ -261,9 +290,11 @@ export default function DashboardLayout({
         console.log(
           "[dashboard] A chamar a API correta: /api/positions?status=open",
         );
+        const authHeaders = await getAuthToken();
         const response = await fetch("/api/positions?status=open", {
           credentials: "include",
           cache: "no-store",
+          headers: authHeaders,
         });
 
         if (!response.ok) {
