@@ -45,22 +45,23 @@ export async function GET(req: NextRequest) {
 
     const userId = user.id;
 
-    // Override em memória do admin (tem prioridade sobre o DB)
+    // Override em memória do admin (cache de resposta imediata no mesmo processo)
     const mem = adminOverrideStore.get(userId);
 
-    // Buscar conta real e conta demo do DB (separadas)
-    const { data: accounts } = await sb
-      .from("accounts")
-      .select("id, balance, leverage, currency, mode")
-      .eq("user_id", userId);
-
-    const { data: dbOverride } = await sb
-      .from("admin_overrides")
-      .select(
-        "balance_adjustment, equity_override, margin_level_override, force_close_positions",
-      )
-      .eq("user_id", userId)
-      .maybeSingle();
+    // Buscar conta real, conta demo e admin overrides do DB em paralelo
+    const [{ data: accounts }, { data: dbOverride }] = await Promise.all([
+      sb
+        .from("accounts")
+        .select("id, balance, leverage, currency, mode")
+        .eq("user_id", userId),
+      sb
+        .from("admin_overrides")
+        .select(
+          "balance_adjustment, equity_override, margin_level_override, force_close_positions, active_mode",
+        )
+        .eq("user_id", userId)
+        .maybeSingle(),
+    ]);
 
     const accs =
       (accounts as
@@ -75,15 +76,26 @@ export async function GET(req: NextRequest) {
     const realAccount = accs.find((a) => a.mode === "real");
     const demoAccount = accs.find((a) => a.mode === "demo");
 
-    // Conta real: mem é imediata (mesmo lambda após PATCH); DB é fallback persistente.
-    // Se mem tiver um valor e for maior que zero, usa-o primeiro para resposta imediata.
-    // Caso o lambda reinicie (cold start), mem é null e cai para o DB.
-    const dbRealBalance = realAccount?.balance ?? 0;
-    const dbOverrideBalance =
-      (dbOverride as { balance_adjustment?: number } | null)
-        ?.balance_adjustment ?? null;
+    type DbOverrideRow = {
+      balance_adjustment?: number | null;
+      equity_override?: number | null;
+      margin_level_override?: number | null;
+      force_close_positions?: boolean | null;
+      active_mode?: string | null;
+    };
+    const dbOv = dbOverride as DbOverrideRow | null;
+
+    // ── DB É FONTE DA VERDADE (anti-oscilação em Vercel multi-instância) ──
+    // Prioridade: 1) accounts.balance (escrito diretamente pelo admin PATCH)
+    //             2) admin_overrides.balance_adjustment (backup do mesmo valor)
+    //             3) memory cache (apenas no mesmo processo/instância)
+    const dbRealBalance = realAccount != null ? realAccount.balance : null;
+    const dbOverrideBalance = dbOv?.balance_adjustment ?? null;
     const effectiveRealBalance =
-      mem?.balance ?? dbOverrideBalance ?? dbRealBalance;
+      dbRealBalance ?? // 1. accounts.balance — fonte primária
+      dbOverrideBalance ?? // 2. admin_overrides.balance_adjustment — backup
+      mem?.balance ?? // 3. memória in-process — mesmo lambda pós-PATCH
+      0; // 4. fallback zero
 
     // Conta demo: NUNCA afectada pelo admin — sempre do DB com fallback 100k fixo
     const demoBalance = demoAccount
@@ -91,10 +103,10 @@ export async function GET(req: NextRequest) {
       : 100_000;
     const realBalance = effectiveRealBalance;
 
-    // O servidor só força modo quando houver override explícito do admin.
-    // Fora isso, o cliente começa em Real ao entrar e pode trocar manualmente.
+    // Modo activo: memória tem prioridade (imediato), fallback DB, depois null
+    const dbActiveMode = (dbOv?.active_mode as "demo" | "real" | null) ?? null;
     const effectiveMode: "demo" | "real" | null =
-      (mem?.mode as "demo" | "real") ?? null;
+      (mem?.mode as "demo" | "real" | null) ?? dbActiveMode ?? null;
 
     return NextResponse.json({
       success: true,
@@ -107,22 +119,15 @@ export async function GET(req: NextRequest) {
         currency: realAccount?.currency ?? demoAccount?.currency ?? "USD",
         // Admin overrides — balanceOverride removido (saldo controlado via Financeiro)
         balanceOverride: null,
-        equityOverride:
-          mem?.equityOverride ??
-          (dbOverride as { equity_override?: number } | null)
-            ?.equity_override ??
-          null,
+        equityOverride: mem?.equityOverride ?? dbOv?.equity_override ?? null,
         marginLevelOverride:
-          mem?.marginLevelOverride ??
-          (dbOverride as { margin_level_override?: number } | null)
-            ?.margin_level_override ??
-          null,
+          mem?.marginLevelOverride ?? dbOv?.margin_level_override ?? null,
         forceClosePositions:
-          mem?.forceClose ??
-          (dbOverride as { force_close_positions?: boolean } | null)
-            ?.force_close_positions ??
-          false,
+          mem?.forceClose ?? dbOv?.force_close_positions ?? false,
         activeMode: effectiveMode,
+        // forceEpochReset: sinaliza ao cliente para recalcular o epoch de P/L
+        // (enviado após admin alterar saldo, para isolar trades históricos)
+        forceEpochReset: mem?.forceEpochReset ?? false,
       },
     });
   } catch (err) {
@@ -169,17 +174,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Limpar forceClose no store em memória
+    // Limpar forceClose + forceEpochReset no store em memória
     adminOverrideStore.clearForceClose(user.id);
 
-    // Tentar também no DB (best-effort — falha silenciosa)
-    const sb2 = createServerClient();
-    await sb2
+    // Persistir no DB também (garante consistência em multi-instância)
+    await sb
       .from("admin_overrides")
       .update({ force_close_positions: false })
       .eq("user_id", user.id)
       .then(() => {
-        /* ignorar erros */
+        /* best-effort */
+      })
+      .catch(() => {
+        /* silêncio se a coluna não existir */
       });
 
     return NextResponse.json({ success: true });

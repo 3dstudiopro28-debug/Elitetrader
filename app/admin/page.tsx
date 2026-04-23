@@ -1708,6 +1708,32 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
+-- accounts: adicionar mode (CRÍTICO — sem esta coluna, queries geram WITHIN GROUP error)
+DO $$ BEGIN
+  ALTER TABLE public.accounts ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'real' CHECK (mode IN ('demo','real'));
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.accounts ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','pending'));
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_user_id_key;
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'accounts_user_id_mode_key' AND conrelid = 'public.accounts'::regclass) THEN
+    ALTER TABLE public.accounts ADD CONSTRAINT accounts_user_id_mode_key UNIQUE (user_id, mode);
+  END IF;
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
+DO $$ BEGIN
+  INSERT INTO public.accounts (user_id, mode, balance, leverage, currency, status)
+  SELECT a.user_id, 'demo', 100000.00, COALESCE(a.leverage, 200), COALESCE(a.currency, 'USD'), 'active'
+  FROM public.accounts a
+  WHERE NOT EXISTS (SELECT 1 FROM public.accounts a2 WHERE a2.user_id = a.user_id AND a2.mode = 'demo');
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
 -- === FUNÇÃO handle_new_user (compatível com qualquer schema) ===
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$

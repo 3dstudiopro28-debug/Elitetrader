@@ -150,7 +150,7 @@ export async function DELETE(req: NextRequest) {
   const token = getAccessToken(req);
 
   try {
-    const { positionId, closePrice, pnl, mode } = await req.json();
+    const { positionId, closePrice, pnl, mode, closeReason } = await req.json();
 
     // Fechar no Supabase se autenticado
     if (token && positionId) {
@@ -168,7 +168,7 @@ export async function DELETE(req: NextRequest) {
               close_price: closePrice ?? null,
               pnl: pnl ?? 0,
               closed_at: new Date().toISOString(),
-              close_reason: "manual",
+              close_reason: closeReason ?? "manual",
             })
             .eq("id", positionId)
             .eq("user_id", user.id);

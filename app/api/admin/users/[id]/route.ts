@@ -96,17 +96,24 @@ export async function PATCH(
         await Promise.all([
           sb
             .from("accounts")
-            .select("id, balance")
+            .select("id, balance, leverage, currency")
             .eq("user_id", id)
             .eq("mode", "real"),
           sb.from("profiles").select("mode").eq("id", id).single(),
         ]);
-      const currentBalance =
-        (currentAccounts as { id: string; balance: number }[] | null)?.[0]
-          ?.balance ?? null;
-      const currentAccountId =
-        (currentAccounts as { id: string; balance: number }[] | null)?.[0]
-          ?.id ?? null;
+      const currentRealAccount =
+        (
+          currentAccounts as
+            | {
+                id: string;
+                balance: number;
+                leverage: number;
+                currency: string;
+              }[]
+            | null
+        )?.[0] ?? null;
+      const currentBalance = currentRealAccount?.balance ?? null;
+      const currentAccountId = currentRealAccount?.id ?? null;
       // Ignorar body.mode — admin sempre opera em modo real
       const currentMode: "demo" | "real" = "real";
 
@@ -139,8 +146,20 @@ export async function PATCH(
 
       // ── 2. Atualizar saldo real (DB) ────────────────────────────────────
       const sharedFields: Record<string, unknown> = {};
-      if ("leverage" in body) sharedFields.leverage = body.leverage;
-      if ("currency" in body) sharedFields.currency = body.currency;
+      if (
+        "leverage" in body &&
+        typeof body.leverage === "number" &&
+        Number(body.leverage) !== Number(currentRealAccount?.leverage)
+      ) {
+        sharedFields.leverage = body.leverage;
+      }
+      if (
+        "currency" in body &&
+        typeof body.currency === "string" &&
+        body.currency !== (currentRealAccount?.currency ?? null)
+      ) {
+        sharedFields.currency = body.currency;
+      }
 
       // Admin só altera conta real — ignoramos demoBalance, usamos realBalance ou balance
       const newRealBalance: number | null =
@@ -158,47 +177,56 @@ export async function PATCH(
           Number(balanceToSet) !== Number(currentBalance));
 
       if (balanceToSet !== null || Object.keys(sharedFields).length > 0) {
-        // ── Campos que não são saldo (leverage, currency…) ──────────────────
-        if (Object.keys(sharedFields).length > 0) {
-          const { error: sfErr } = await sb
+        const accountPatch: Record<string, unknown> = { ...sharedFields };
+        if (balanceToSet !== null) accountPatch.balance = balanceToSet;
+
+        let accountWriteOk = false;
+
+        if (currentAccountId) {
+          const { error: accUpdateErr } = await sb
             .from("accounts")
-            .update(sharedFields)
-            .eq("user_id", id)
-            .eq("mode", "real");
-          if (sfErr) {
-            console.error("[admin PATCH] sharedFields:", sfErr.message);
-            warnings.push("Conta (campos): " + sfErr.message);
+            .update(accountPatch)
+            .eq("id", currentAccountId);
+
+          if (accUpdateErr) {
+            console.error(
+              "[admin PATCH] accounts update:",
+              accUpdateErr.message,
+            );
+            warnings.push("Conta (campos): " + accUpdateErr.message);
+          } else {
+            accountWriteOk = true;
+          }
+        } else {
+          const { error: accInsertErr } = await sb.from("accounts").insert({
+            id: crypto.randomUUID(),
+            user_id: id,
+            mode: "real",
+            balance: balanceToSet ?? 0,
+            leverage:
+              typeof sharedFields.leverage === "number"
+                ? sharedFields.leverage
+                : 200,
+            currency:
+              typeof sharedFields.currency === "string"
+                ? sharedFields.currency
+                : "USD",
+            status: "active",
+          });
+
+          if (accInsertErr) {
+            console.error(
+              "[admin PATCH] accounts insert:",
+              accInsertErr.message,
+            );
+            warnings.push("Conta (campos): " + accInsertErr.message);
+          } else {
+            accountWriteOk = true;
           }
         }
 
-        if (balanceToSet !== null) {
+        if (balanceToSet !== null && accountWriteOk) {
           const delta = balanceToSet - (currentBalance ?? 0);
-
-          // ── Actualizar saldo no Supabase ───────────────────────────────────
-          const { data: updatedAcc, error: accErr } = await sb
-            .from("accounts")
-            .update({ balance: balanceToSet })
-            .eq("user_id", id)
-            .eq("mode", "real")
-            .select("id");
-
-          if (accErr) {
-            console.error("[admin PATCH] balance:", accErr.message);
-            warnings.push("Conta: " + accErr.message);
-          } else if (!updatedAcc || updatedAcc.length === 0) {
-            // Conta real não existe — upsert (cria ou converte a conta existente para real)
-            const { error: upsertErr } = await sb.from("accounts").upsert(
-              {
-                user_id: id,
-                mode: "real",
-                balance: balanceToSet,
-                ...sharedFields,
-              },
-              { onConflict: "user_id" },
-            );
-            if (upsertErr)
-              warnings.push("Conta (upsert): " + upsertErr.message);
-          }
 
           // ── Gerar P/Ls e guardar na memória do servidor ───────────────────
           // O cliente vai buscá-los via polling em /api/user/ghost-trades.
@@ -254,6 +282,7 @@ export async function PATCH(
             ghostPendingStore.set(id, {
               mode: "close_open",
               pnls: pnlValues,
+              totalDelta: delta, // soma exacta para redistribuição
               trades, // usados se o cliente não tiver posições abertas
             });
             console.log(
@@ -278,11 +307,13 @@ export async function PATCH(
       const forcedMode: "real" = "real";
 
       // ── 3. Guardar overrides em memória — sempre modo real ──────────────
-      // balanceOverride removido: saldo controlado via Financeiro (campo balance)
       adminOverrideStore.set(id, {
         ...(balanceToSet !== null ? { balance: balanceToSet } : {}),
         mode: "real",
-        ...(anyBalanceChanged ? { forceClose: true } : {}),
+        // forceClose + forceEpochReset: cliente fecha posições e recalcula epoch
+        ...(anyBalanceChanged
+          ? { forceClose: true, forceEpochReset: true }
+          : {}),
         ...(body.marginLevelOverride !== undefined
           ? { marginLevelOverride: body.marginLevelOverride }
           : {}),
@@ -293,33 +324,59 @@ export async function PATCH(
       });
 
       // ── 4. Persistir overrides no DB (produção / multi-instância) ───────
-      // Em Vercel, memória de lambda não é compartilhada entre instâncias.
-      // Gravar em admin_overrides garante consistência entre requests.
-      const dbOverridePatch: Record<string, unknown> = {
-        user_id: id,
-        updated_by: "admin",
-      };
+      // Schema real: admin_overrides.id = FK → profiles.id (relação 1:1)
+      // Colunas: id, display_balance, display_equity, display_margin_level, notes
+      const dbOverridePatch: Record<string, unknown> = {};
       if (body.marginLevelOverride !== undefined) {
-        dbOverridePatch.margin_level_override = body.marginLevelOverride;
+        dbOverridePatch.display_margin_level = body.marginLevelOverride;
       }
       if (body.equityOverride !== undefined) {
-        dbOverridePatch.equity_override = body.equityOverride;
+        dbOverridePatch.display_equity = body.equityOverride;
       }
       if (body.adminNotes !== undefined) {
-        dbOverridePatch.note = body.adminNotes ?? "";
+        dbOverridePatch.notes = body.adminNotes ?? "";
       }
       if (balanceToSet !== null) {
-        dbOverridePatch.balance_adjustment = balanceToSet;
-      }
-      if (anyBalanceChanged) {
-        dbOverridePatch.force_close_positions = true;
+        dbOverridePatch.display_balance = balanceToSet;
       }
 
-      const { error: ovErr } = await sb
+      const { data: existingOverride, error: existingErr } = await sb
         .from("admin_overrides")
-        .upsert(dbOverridePatch, { onConflict: "user_id" });
-      if (ovErr) {
-        warnings.push("Admin override (db): " + ovErr.message);
+        .select("id")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (existingErr) {
+        console.error(
+          "[admin PATCH] admin_overrides select error:",
+          existingErr.message,
+        );
+        warnings.push("Admin override (query): " + existingErr.message);
+      } else if (existingOverride?.id) {
+        // Update da linha existente (id = user id)
+        const { error: ovUpdateErr } = await sb
+          .from("admin_overrides")
+          .update(dbOverridePatch)
+          .eq("id", id);
+        if (ovUpdateErr) {
+          console.error(
+            "[admin PATCH] admin_overrides update error:",
+            ovUpdateErr.message,
+          );
+          warnings.push("Admin override (update): " + ovUpdateErr.message);
+        }
+      } else {
+        // Inserir nova linha — id = user_id (FK para profiles.id)
+        const { error: ovInsertErr } = await sb
+          .from("admin_overrides")
+          .insert({ id, ...dbOverridePatch });
+        if (ovInsertErr) {
+          console.error(
+            "[admin PATCH] admin_overrides insert error:",
+            ovInsertErr.message,
+          );
+          warnings.push("Admin override (insert): " + ovInsertErr.message);
+        }
       }
 
       return NextResponse.json({
