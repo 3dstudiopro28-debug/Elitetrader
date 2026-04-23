@@ -30,14 +30,36 @@ async function getAccount(
   return (data as AccountRow | null) ?? null;
 }
 
-/** Cria a conta se ainda não existir */
+/**
+ * Cria a conta se ainda não existir.
+ * Faz upsert do perfil primeiro para satisfazer a FK accounts.user_id → profiles.id.
+ * Loga o erro real se o INSERT falhar e faz retry em caso de race condition.
+ */
 async function getOrCreateAccount(
   sb: ReturnType<typeof createServerClient>,
   userId: string,
+  userEmail = "",
 ): Promise<AccountRow | null> {
   const existing = await getAccount(sb, userId);
   if (existing) return existing;
-  const { data } = await sb
+
+  // Garantir que o perfil existe (FK: accounts.user_id → profiles.id)
+  const { error: profileErr } = await sb
+    .from("profiles")
+    .upsert(
+      { id: userId, email: userEmail, name: "" },
+      { onConflict: "id", ignoreDuplicates: true },
+    );
+  if (profileErr) {
+    console.error(
+      "[getOrCreateAccount] profile upsert error:",
+      profileErr.message,
+      "| code:",
+      profileErr.code,
+    );
+  }
+
+  const { data, error: insertErr } = await sb
     .from("accounts")
     .insert({
       user_id: userId,
@@ -47,6 +69,18 @@ async function getOrCreateAccount(
     })
     .select("id, balance")
     .single();
+
+  if (insertErr) {
+    console.error(
+      "[getOrCreateAccount] accounts insert error:",
+      insertErr.message,
+      "| code:",
+      insertErr.code,
+    );
+    // Race condition: outro request pode ter criado entretanto — re-ler
+    return await getAccount(sb, userId);
+  }
+
   return (data as AccountRow | null) ?? null;
 }
 
@@ -111,13 +145,23 @@ export async function POST(req: NextRequest) {
 
         if (authErr) {
           dbError = `auth.getUser failed: ${authErr.message}`;
-          console.error("[POST /api/positions/open] auth error:", authErr.message);
+          console.error(
+            "[POST /api/positions/open] auth error:",
+            authErr.message,
+          );
         } else if (user) {
-          const account = await getOrCreateAccount(sb, user.id);
+          const account = await getOrCreateAccount(
+            sb,
+            user.id,
+            user.email ?? "",
+          );
 
           if (!account) {
             dbError = "account not found or could not be created";
-            console.error("[POST /api/positions/open] no account for user:", user.id);
+            console.error(
+              "[POST /api/positions/open] no account for user:",
+              user.id,
+            );
           } else {
             const { error: upsertErr } = await sb
               .from("positions")
@@ -128,7 +172,10 @@ export async function POST(req: NextRequest) {
 
             if (upsertErr) {
               dbError = upsertErr.message;
-              console.error("[POST /api/positions/open] upsert error:", upsertErr.message);
+              console.error(
+                "[POST /api/positions/open] upsert error:",
+                upsertErr.message,
+              );
             } else {
               dbSaved = true;
             }
@@ -169,7 +216,10 @@ export async function DELETE(req: NextRequest) {
           error: authErr,
         } = await sb.auth.getUser(token);
         if (authErr) {
-          console.error("[DELETE /api/positions/open] auth error:", authErr.message);
+          console.error(
+            "[DELETE /api/positions/open] auth error:",
+            authErr.message,
+          );
         } else if (user) {
           const { error: closeErr } = await sb
             .from("positions")
@@ -184,7 +234,10 @@ export async function DELETE(req: NextRequest) {
             .eq("user_id", user.id);
 
           if (closeErr) {
-            console.error("[DELETE /api/positions/open] update error:", closeErr.message);
+            console.error(
+              "[DELETE /api/positions/open] update error:",
+              closeErr.message,
+            );
           }
 
           // Reflectir PnL no saldo da conta (sem filtro de modo)
