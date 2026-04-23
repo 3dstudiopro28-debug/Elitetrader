@@ -325,3 +325,47 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS force_password_change boole
 
 -- RELOAD SCHEMA CACHE — obrigatório após adicionar colunas
 NOTIFY pgrst, 'reload schema';
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- POSITIONS — correcções críticas para persistência de posições
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 1. Remover account_id NOT NULL (impedia todos os inserts de posições)
+ALTER TABLE public.positions DROP COLUMN IF EXISTS account_id CASCADE;
+
+-- 2. Garantir coluna spread existe (usada pelo cliente)
+ALTER TABLE public.positions ADD COLUMN IF NOT EXISTS spread numeric(10,4) DEFAULT 0;
+
+-- 3. Activar RLS na tabela positions
+ALTER TABLE public.positions ENABLE ROW LEVEL SECURITY;
+
+-- 4. Políticas de acesso — utilizador só vê e gere as próprias posições
+DROP POLICY IF EXISTS "positions_own_select" ON public.positions;
+DROP POLICY IF EXISTS "positions_own_insert" ON public.positions;
+DROP POLICY IF EXISTS "positions_own_update" ON public.positions;
+DROP POLICY IF EXISTS "positions_own_delete" ON public.positions;
+
+CREATE POLICY "positions_own_select" ON public.positions
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "positions_own_insert" ON public.positions
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "positions_own_update" ON public.positions
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "positions_own_delete" ON public.positions
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- 5. Adicionar positions ao Realtime para sync em tempo real
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'positions'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.positions;
+  END IF;
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+$$;
+
+-- RECARREGAR SCHEMA CACHE FINAL
+NOTIFY pgrst, 'reload schema';

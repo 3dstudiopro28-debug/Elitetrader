@@ -16,19 +16,10 @@ function getAccessToken(req: NextRequest): string | null {
 }
 
 export async function GET(req: NextRequest) {
-  console.log("API GET /api/positions: Pedido recebido.");
-
   const token = getAccessToken(req);
   if (!token) {
-    console.error(
-      "API GET /api/positions: Token não encontrado nos cookies nem no header Authorization.",
-    );
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
-
-  console.log(
-    "API GET /api/positions: Token encontrado, a validar utilizador...",
-  );
 
   try {
     const sb = createServerClient(token);
@@ -38,21 +29,10 @@ export async function GET(req: NextRequest) {
     } = await sb.auth.getUser(token);
 
     if (authErr || !user) {
-      console.error(
-        "API GET /api/positions: Erro ao obter utilizador ou utilizador não autenticado.",
-        authErr,
-      );
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
 
-    console.log(
-      `API GET /api/positions: A procurar posições para o user_id: ${user.id}`,
-    );
-
     const status = req.nextUrl.searchParams.get("status") ?? "all";
-    console.log(
-      `API GET /api/positions: Parâmetro status recebido: "${status}"`,
-    );
 
     let query = sb
       .from("positions")
@@ -62,34 +42,20 @@ export async function GET(req: NextRequest) {
 
     if (status === "open") {
       query = query.eq("status", "open");
-      console.log("API GET /api/positions: A aplicar filtro status = 'open'");
     } else if (status === "closed") {
       query = query.eq("status", "closed").limit(500);
-      console.log("API GET /api/positions: A aplicar filtro status = 'closed'");
-    } else {
-      console.log(
-        "API GET /api/positions: Sem filtro de status (retorna todas).",
-      );
     }
 
     const { data: positions, error } = await query;
 
     if (error) {
-      console.error(
-        "API GET /api/positions: Erro na consulta à base de dados:",
-        error,
-      );
+      console.error("[GET /api/positions] DB error:", error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log(
-      `API GET /api/positions: A consulta retornou ${positions?.length ?? 0} linhas.`,
-    );
-    console.log("API GET /api/positions: Dados retornados:", positions);
-
     return NextResponse.json({ success: true, data: positions ?? [] });
   } catch (err) {
-    console.error("API GET /api/positions: Erro inesperado:", err);
+    console.error("[GET /api/positions] Unexpected error:", err);
     return NextResponse.json({ error: "Erro interno" }, { status: 500 });
   }
 }

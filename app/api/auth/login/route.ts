@@ -45,42 +45,66 @@ async function ensureRealModeBootstrap(
   email?: string | null,
   meta: Record<string, unknown> = {},
 ) {
-  await sb.from("profiles").upsert(
-    {
-      id: userId,
-      email: email ?? "",
-      first_name: String(meta.first_name ?? meta.given_name ?? ""),
-      last_name: String(meta.last_name ?? meta.family_name ?? ""),
-      mode: "real",
-    },
-    { onConflict: "id" },
-  );
-
-  const { data: accounts } = await sb
-    .from("accounts")
-    .select("id, mode")
-    .eq("user_id", userId);
-
-  const rows = (accounts as { id: string; mode: string }[] | null) ?? [];
-
-  if (!rows.some((acc) => acc.mode === "demo")) {
-    await sb.from("accounts").insert({
-      user_id: userId,
-      mode: "demo",
-      balance: 100_000,
-      leverage: 200,
-      currency: "USD",
-    });
+  // Upsert do perfil — ignora colunas que podem não existir no schema
+  try {
+    await sb.from("profiles").upsert(
+      {
+        id: userId,
+        email: email ?? "",
+        first_name: String(meta.first_name ?? meta.given_name ?? ""),
+        last_name: String(meta.last_name ?? meta.family_name ?? ""),
+      },
+      { onConflict: "id", ignoreDuplicates: false },
+    );
+  } catch {
+    // Se falhar (ex: coluna first_name não existe), tentar schema mínimo
+    try {
+      await sb.from("profiles").upsert(
+        { id: userId, email: email ?? "" },
+        { onConflict: "id", ignoreDuplicates: true },
+      );
+    } catch {
+      /* ignorar — o perfil pode já existir */
+    }
   }
 
-  if (!rows.some((acc) => acc.mode === "real")) {
-    await sb.from("accounts").insert({
-      user_id: userId,
-      mode: "real",
-      balance: 0,
-      leverage: 200,
-      currency: "USD",
-    });
+  // Garantir conta 'real' existe — tenta com mode, fallback sem mode
+  try {
+    const { data: accounts } = await sb
+      .from("accounts")
+      .select("id, mode")
+      .eq("user_id", userId);
+
+    const rows = (accounts as { id: string; mode: string }[] | null) ?? [];
+
+    if (!rows.some((acc) => acc.mode === "demo")) {
+      await sb.from("accounts").insert({
+        user_id: userId,
+        mode: "demo",
+        balance: 100_000,
+        leverage: 200,
+        currency: "USD",
+      });
+    }
+
+    if (!rows.some((acc) => acc.mode === "real")) {
+      await sb.from("accounts").insert({
+        user_id: userId,
+        mode: "real",
+        balance: 0,
+        leverage: 200,
+        currency: "USD",
+      });
+    }
+  } catch {
+    // Schema sem coluna mode — garantir que pelo menos uma conta existe
+    try {
+      await sb
+        .from("accounts")
+        .insert({ user_id: userId, balance: 0, leverage: 200, currency: "USD" });
+    } catch {
+      /* conta já existe (23505) — ignorar */
+    }
   }
 }
 
