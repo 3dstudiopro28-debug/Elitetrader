@@ -504,14 +504,11 @@ export const tradeStore = {
   },
 
   /**
-   * Carrega posições abertas directamente da base de dados, substituindo o
-   * estado local. DB é autoritativo — limpa e recarrega.
+   * Carrega posições abertas da base de dados com estratégia de merge.
+   * Posições do DB são autoritativas; posições locais que ainda não chegaram
+   * ao servidor (ex: abertas nesta sessão antes da sync) são preservadas.
    */
   loadOpenPositions(rows: Record<string, unknown>[]) {
-    console.log(
-      "PASSO 4: [FRONTEND-STORE] A função loadOpenPositions foi chamada com:",
-      rows,
-    );
     if (typeof window === "undefined") return;
 
     const iconMap: Record<string, string> = {
@@ -539,7 +536,7 @@ export const tradeStore = {
       NFLX: "🎬",
     };
 
-    const positions: OpenPosition[] = rows
+    const remotePositions: OpenPosition[] = rows
       .filter((row) => row.status === "open")
       .map((row) => {
         const symbol = String(row.symbol || "");
@@ -572,11 +569,108 @@ export const tradeStore = {
         };
       });
 
-    // Substituir estado local pelos dados do servidor (DB é autoritativo)
-    write(keys().open, positions);
-    console.log(
-      `PASSO 5: [FRONTEND-STORE] Estado atualizado com ${positions.length} posições.`,
+    // Merge: DB como fonte autoritativa + posições locais ainda não persistidas
+    const localPositions = this.getOpen();
+    const remoteIds = new Set(remotePositions.map((p) => p.id));
+    const localOnly = localPositions.filter((p) => !remoteIds.has(p.id));
+
+    const merged = [...remotePositions, ...localOnly].sort(
+      (a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime(),
     );
+
+    write(keys().open, merged);
+  },
+
+  /**
+   * Carrega posições fechadas da base de dados, fazendo merge com o histórico
+   * local. Evita duplicados por ID. Usado no startup para restaurar o histórico
+   * cross-device.
+   */
+  loadClosedPositions(rows: Record<string, unknown>[]) {
+    if (typeof window === "undefined") return;
+
+    const iconMap: Record<string, string> = {
+      EURUSD: "🇪🇺",
+      EURGBP: "€£",
+      GBPUSD: "🇬🇧",
+      USDJPY: "💴",
+      USDCHF: "🇨🇭",
+      AUDUSD: "🇦🇺",
+      USDCAD: "🇨🇦",
+      NZDUSD: "🇳🇿",
+      EURJPY: "🇪🇺",
+      XAUUSD: "🥇",
+      XAGUSD: "🥈",
+      BTCUSD: "₿",
+      ETHUSD: "Ξ",
+      SOLUSD: "◎",
+      AAPL: "🍎",
+      TSLA: "⚡",
+      NVDA: "🟢",
+      AMZN: "📦",
+      MSFT: "🪟",
+      META: "🔵",
+      GOOGL: "🔍",
+      NFLX: "🎬",
+    };
+
+    const existing = this.getClosed();
+    const existingIds = new Set(existing.map((p) => p.id));
+
+    const remotePositions: ClosedPosition[] = rows
+      .filter(
+        (row) => row.status === "closed" && !existingIds.has(String(row.id)),
+      )
+      .map((row) => {
+        const symbol = String(row.symbol || "UNKNOWN");
+        const openPrice = parseFloat(String(row.open_price ?? 1));
+        const closePrice = parseFloat(String(row.close_price ?? openPrice));
+        const pnl = parseFloat(String(row.pnl ?? 0));
+        const amount = parseFloat(String(row.amount ?? 1));
+        const decimals = Math.max(
+          (openPrice.toString().split(".")[1] ?? "").length,
+          2,
+        );
+        const rawReason = String(row.close_reason ?? "manual");
+        const closeReason: ClosedPosition["closeReason"] =
+          rawReason === "take_profit"
+            ? "take_profit"
+            : rawReason === "stop_loss"
+              ? "stop_loss"
+              : rawReason === "margin_call"
+                ? "margin_call"
+                : rawReason === "adjustment"
+                  ? "adjustment"
+                  : "manual";
+
+        return {
+          id: String(row.id),
+          assetId: symbol.toLowerCase(),
+          symbol,
+          name: String(row.asset_name || symbol),
+          icon: iconMap[symbol] ?? "📊",
+          digits: decimals,
+          type: (row.type === "sell" ? "sell" : "buy") as "buy" | "sell",
+          lots: parseFloat(String(row.lots ?? 0)),
+          amount,
+          leverage: parseInt(String(row.leverage ?? 1)),
+          openPrice,
+          closePrice,
+          pnl,
+          pnlPct: amount > 0 ? (pnl / amount) * 100 : 0,
+          openedAt: String(row.opened_at ?? new Date().toISOString()),
+          closedAt: String(row.closed_at ?? new Date().toISOString()),
+          closeReason,
+        };
+      });
+
+    if (remotePositions.length === 0) return;
+
+    const merged = [...remotePositions, ...existing].sort(
+      (a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime(),
+    );
+
+    write(keys().closed, merged);
   },
 
   closePositionDirect(

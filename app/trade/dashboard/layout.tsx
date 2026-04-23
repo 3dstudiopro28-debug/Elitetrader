@@ -135,7 +135,26 @@ export default function DashboardLayout({
         console.error("Erro catastrófico ao tentar sincronizar:", e);
       }
     }
+
+    // ── Sync cross-device: buscar histórico de posições fechadas ─────────────
+    async function syncClosedPositionsFromDB() {
+      try {
+        const response = await fetch("/api/positions?status=closed", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const json = await response.json();
+        if (json.data && Array.isArray(json.data)) {
+          tradeStore.loadClosedPositions(json.data as Record<string, unknown>[]);
+        }
+      } catch {
+        // silencioso — histórico não é crítico para o arranque
+      }
+    }
+
     syncOpenPositionsFromDB();
+    syncClosedPositionsFromDB();
 
     async function fetchGhostTrades() {
       try {
@@ -239,21 +258,28 @@ export default function DashboardLayout({
 
     async function pollOpenPositions() {
       try {
-        console.log("[dashboard] A chamar a API correta: /api/positions?status=open");
+        console.log(
+          "[dashboard] A chamar a API correta: /api/positions?status=open",
+        );
         const response = await fetch("/api/positions?status=open", {
           credentials: "include",
           cache: "no-store",
         });
 
         if (!response.ok) {
-          console.warn("[dashboard] A API /api/positions respondeu com erro:", response.status);
+          console.warn(
+            "[dashboard] A API /api/positions respondeu com erro:",
+            response.status,
+          );
           return;
         }
 
         const json = await response.json();
         if (json.data && Array.isArray(json.data)) {
           tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
-          console.log(`[dashboard] Sincronização concluída. ${json.data.length} posições carregadas.`);
+          console.log(
+            `[dashboard] Sincronização concluída. ${json.data.length} posições carregadas.`,
+          );
         }
       } catch (e) {
         console.error("[dashboard] Erro crítico durante a sincronização:", e);
