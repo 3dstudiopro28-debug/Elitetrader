@@ -404,8 +404,105 @@ export const tradeStore = {
   },
 
   /**
-   * Se a posição não existir em localStorage, ignora silenciosamente.
+   * Sincroniza posições abertas do servidor com o localStorage.
+   * Deve ser chamado SEMPRE no arranque do dashboard (após login).
+   *
+   * Estratégia de merge (DB é autoritativo):
+   * - Converte linhas do DB → OpenPosition
+   * - Posições do DB que não estão em localStorage são adicionadas
+   * - Posições locais não presentes no DB são mantidas (abertas nesta sessão
+   *   e ainda a aguardar sincronização para o servidor)
+   * - Dispara um evento para actualizar a UI
    */
+  syncOpenFromRemote(rows: Record<string, unknown>[]) {
+    if (typeof window === "undefined") return;
+
+    const iconMap: Record<string, string> = {
+      EURUSD: "🇪🇺",
+      EURGBP: "€£",
+      GBPUSD: "🇬🇧",
+      USDJPY: "💴",
+      USDCHF: "🇨🇭",
+      AUDUSD: "🇦🇺",
+      USDCAD: "🇨🇦",
+      NZDUSD: "🇳🇿",
+      EURJPY: "🇪🇺",
+      XAUUSD: "🥇",
+      XAGUSD: "🥈",
+      BTCUSD: "₿",
+      ETHUSD: "Ξ",
+      SOLUSD: "◎",
+      AAPL: "🍎",
+      TSLA: "⚡",
+      NVDA: "🟢",
+      AMZN: "📦",
+      MSFT: "🪟",
+      META: "🔵",
+      GOOGL: "🔍",
+      NFLX: "🎬",
+    };
+
+    // Converter linhas do DB para o formato OpenPosition
+    const remotePositions: OpenPosition[] = rows
+      .filter((row) => row.status === "open")
+      .map((row) => {
+        const symbol = String(row.symbol || "");
+        const openPrice = parseFloat(String(row.open_price ?? 1));
+        const decimals = Math.max(
+          (openPrice.toString().split(".")[1] ?? "").length,
+          2,
+        );
+        return {
+          id: String(row.id),
+          assetId: symbol.toLowerCase(),
+          symbol,
+          name: String(row.asset_name || symbol),
+          icon: iconMap[symbol] ?? "📊",
+          digits: decimals,
+          tvSymbol: "",
+          type: (row.type === "sell" ? "sell" : "buy") as "buy" | "sell",
+          lots: parseFloat(String(row.lots ?? 0)),
+          amount: parseFloat(String(row.amount ?? 0)),
+          leverage: parseInt(String(row.leverage ?? 1)),
+          openPrice,
+          spread: parseFloat(String(row.spread ?? 0)),
+          stopLoss:
+            row.stop_loss != null ? parseFloat(String(row.stop_loss)) : null,
+          takeProfit:
+            row.take_profit != null
+              ? parseFloat(String(row.take_profit))
+              : null,
+          openedAt: String(row.opened_at ?? new Date().toISOString()),
+        };
+      });
+
+    const localPositions = this.getOpen();
+
+    if (localPositions.length === 0) {
+      // localStorage vazio (caso típico após logout/login) — carregar directamente do DB
+      if (remotePositions.length > 0) {
+        write(keys().open, remotePositions);
+      }
+      return;
+    }
+
+    // Merge: DB + posições locais que ainda não chegaram ao servidor
+    const remoteIds = new Set(remotePositions.map((p) => p.id));
+    const localOnly = localPositions.filter((p) => !remoteIds.has(p.id));
+
+    const merged = [...remotePositions, ...localOnly].sort(
+      (a, b) =>
+        new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime(),
+    );
+
+    // Só escreve se houve alterações (evita re-render desnecessário)
+    const remoteHasNew = remotePositions.some(
+      (r) => !localPositions.find((l) => l.id === r.id),
+    );
+    if (remoteHasNew || localOnly.length < localPositions.length) {
+      write(keys().open, merged);
+    }
+  },
   closePositionDirect(
     id: string,
     closePrice: number,

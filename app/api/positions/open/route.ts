@@ -39,7 +39,12 @@ async function getOrCreateAccount(
   if (existing) return existing;
   const { data } = await sb
     .from("accounts")
-    .insert({ user_id: userId, balance: 1_000_000, leverage: 200, currency: "USD" })
+    .insert({
+      user_id: userId,
+      balance: 1_000_000,
+      leverage: 200,
+      currency: "USD",
+    })
     .select("id, balance")
     .single();
   return (data as AccountRow | null) ?? null;
@@ -93,6 +98,9 @@ export async function POST(req: NextRequest) {
     };
 
     // Persistir no Supabase se autenticado
+    let dbSaved = false;
+    let dbError: string | null = null;
+
     if (token) {
       try {
         const sb = createServerClient(token);
@@ -100,23 +108,42 @@ export async function POST(req: NextRequest) {
           data: { user },
           error: authErr,
         } = await sb.auth.getUser(token);
-        if (!authErr && user) {
-          // Usa getOrCreateAccount sem filtro de modo
+
+        if (authErr) {
+          dbError = `auth.getUser failed: ${authErr.message}`;
+          console.error("[POST /api/positions/open] auth error:", authErr.message);
+        } else if (user) {
           const account = await getOrCreateAccount(sb, user.id);
-          if (account) {
-            await sb.from("positions").upsert(
-              { ...posData, user_id: user.id, account_id: account.id },
-              { onConflict: "id", ignoreDuplicates: false },
-            );
+
+          if (!account) {
+            dbError = "account not found or could not be created";
+            console.error("[POST /api/positions/open] no account for user:", user.id);
+          } else {
+            const { error: upsertErr } = await sb
+              .from("positions")
+              .upsert(
+                { ...posData, user_id: user.id, account_id: account.id },
+                { onConflict: "id", ignoreDuplicates: false },
+              );
+
+            if (upsertErr) {
+              dbError = upsertErr.message;
+              console.error("[POST /api/positions/open] upsert error:", upsertErr.message);
+            } else {
+              dbSaved = true;
+            }
           }
         }
-      } catch {
-        /* localStorage é a fonte primária; silêncio se DB falhar */
+      } catch (e) {
+        dbError = e instanceof Error ? e.message : String(e);
+        console.error("[POST /api/positions/open] unexpected error:", dbError);
       }
     }
 
     return NextResponse.json({
       success: true,
+      dbSaved,
+      dbError,
       data: { ...posData, openedAt: posData.opened_at },
     });
   } catch {
@@ -141,8 +168,10 @@ export async function DELETE(req: NextRequest) {
           data: { user },
           error: authErr,
         } = await sb.auth.getUser(token);
-        if (!authErr && user) {
-          await sb
+        if (authErr) {
+          console.error("[DELETE /api/positions/open] auth error:", authErr.message);
+        } else if (user) {
+          const { error: closeErr } = await sb
             .from("positions")
             .update({
               status: "closed",
@@ -153,6 +182,10 @@ export async function DELETE(req: NextRequest) {
             })
             .eq("id", positionId)
             .eq("user_id", user.id);
+
+          if (closeErr) {
+            console.error("[DELETE /api/positions/open] update error:", closeErr.message);
+          }
 
           // Reflectir PnL no saldo da conta (sem filtro de modo)
           if (typeof pnl === "number" && pnl !== 0) {
@@ -165,8 +198,8 @@ export async function DELETE(req: NextRequest) {
             }
           }
         }
-      } catch {
-        /* silencioso */
+      } catch (e) {
+        console.error("[DELETE /api/positions/open] unexpected error:", e);
       }
     }
 
