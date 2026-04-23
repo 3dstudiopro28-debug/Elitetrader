@@ -102,27 +102,37 @@ export default function DashboardLayout({
 
     // ── Sync cross-device: buscar posições abertas do servidor ──────────────
     async function syncOpenPositionsFromDB() {
+      console.log(
+        "PASSO 1: [FRONTEND] A função syncOpenPositionsFromDB foi chamada.",
+      );
       try {
-        console.log("[dashboard] Sincronizando posições abertas...");
         const response = await fetch("/api/positions?status=open", {
           credentials: "include",
           cache: "no-store",
         });
 
+        console.log(
+          `PASSO 2: [FRONTEND] A API respondeu com o status: ${response.status}`,
+        );
+
         if (!response.ok) {
-          console.warn("[dashboard] API /api/positions erro:", response.status);
+          console.error("Falha na resposta da API.");
           return;
         }
 
         const json = await response.json();
+        console.log(
+          "PASSO 3: [FRONTEND] A API retornou o seguinte JSON:",
+          json,
+        );
+
         if (json.data && Array.isArray(json.data)) {
           tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
-          console.log(
-            `[dashboard] ${json.data.length} posições sincronizadas.`,
-          );
+        } else {
+          console.warn("O JSON da API não contém um array em `data`.");
         }
       } catch (e) {
-        console.warn("[dashboard] syncOpenPositionsFromDB erro:", e);
+        console.error("Erro catastrófico ao tentar sincronizar:", e);
       }
     }
     syncOpenPositionsFromDB();

@@ -508,6 +508,10 @@ export const tradeStore = {
    * estado local. DB é autoritativo — limpa e recarrega.
    */
   loadOpenPositions(rows: Record<string, unknown>[]) {
+    console.log(
+      "PASSO 4: [FRONTEND-STORE] A função loadOpenPositions foi chamada com:",
+      rows,
+    );
     if (typeof window === "undefined") return;
 
     const iconMap: Record<string, string> = {
@@ -570,6 +574,9 @@ export const tradeStore = {
 
     // Substituir estado local pelos dados do servidor (DB é autoritativo)
     write(keys().open, positions);
+    console.log(
+      `PASSO 5: [FRONTEND-STORE] Estado atualizado com ${positions.length} posições.`,
+    );
   },
 
   closePositionDirect(

@@ -16,6 +16,7 @@ function getAccessToken(req: NextRequest): string | null {
 }
 
 export async function GET(req: NextRequest) {
+  console.log("PASSO A: [BACKEND] A API GET /api/positions foi chamada.");
   const token = getAccessToken(req);
   if (!token) return NextResponse.json({ success: true, data: [] });
 
@@ -47,6 +48,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, data: [] });
     }
 
+    console.log(
+      `PASSO B: [BACKEND] A consulta à base de dados encontrou ${positions?.length ?? 0} posições.`,
+    );
     return NextResponse.json({ success: true, data: positions ?? [] });
   } catch {
     return NextResponse.json({ success: true, data: [] });
