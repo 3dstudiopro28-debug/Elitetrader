@@ -58,8 +58,7 @@ export default function DashboardLayout({
           .then(({ data: { session: refreshed } }) => {
             if (!refreshed) {
               if (askReauth()) router.replace("/auth/login");
-            }
-            else {
+            } else {
               clearStaleUserData(refreshed.user.id);
               setReady(true);
             }
@@ -102,46 +101,28 @@ export default function DashboardLayout({
     if (!ready) return;
 
     // ── Sync cross-device: buscar posições abertas do servidor ──────────────
-    // Chamado SEMPRE no arranque — não depende de localStorage estar vazio.
-    // Usa syncOpenFromRemote que faz merge (DB + posições locais não sincronizadas).
     async function syncOpenPositionsFromDB() {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) return;
-
-        // Segurança: se userId local não corresponde à sessão, limpar dados obsoletos
-        const storedUserId = localStorage.getItem("et_session_user_id");
-        if (storedUserId && storedUserId !== session.user.id) {
-          const keys = Object.keys(localStorage).filter((k) =>
-            k.startsWith("et_"),
-          );
-          keys.forEach((k) => localStorage.removeItem(k));
-          localStorage.setItem("et_session_user_id", session.user.id);
-        }
-
-        // Buscar posições abertas do DB (sem filtro de modo — o DB não tem coluna mode)
-        const res = await fetch(`/api/positions/open`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+        console.log("[dashboard] Sincronizando posições abertas...");
+        const response = await fetch("/api/positions?status=open", {
           credentials: "include",
           cache: "no-store",
         });
-        if (!res.ok) {
-          console.warn("[syncOpenPositionsFromDB] API error:", res.status);
+
+        if (!response.ok) {
+          console.warn("[dashboard] API /api/positions erro:", response.status);
           return;
         }
-        const json = await res.json();
-        if (json.dbError) {
-          console.warn("[syncOpenPositionsFromDB] DB error:", json.dbError);
-        }
-        const data = json.data;
-        if (Array.isArray(data)) {
-          // syncOpenFromRemote faz merge: DB positions + posições locais não salvas
-          tradeStore.syncOpenFromRemote(data as Record<string, unknown>[]);
+
+        const json = await response.json();
+        if (json.data && Array.isArray(json.data)) {
+          tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
+          console.log(
+            `[dashboard] ${json.data.length} posições sincronizadas.`,
+          );
         }
       } catch (e) {
-        console.warn("[syncOpenPositionsFromDB] unexpected error:", e);
+        console.warn("[dashboard] syncOpenPositionsFromDB erro:", e);
       }
     }
     syncOpenPositionsFromDB();

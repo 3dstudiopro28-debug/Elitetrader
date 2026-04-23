@@ -491,8 +491,7 @@ export const tradeStore = {
     const localOnly = localPositions.filter((p) => !remoteIds.has(p.id));
 
     const merged = [...remotePositions, ...localOnly].sort(
-      (a, b) =>
-        new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime(),
+      (a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime(),
     );
 
     // Só escreve se houve alterações (evita re-render desnecessário)
@@ -503,6 +502,76 @@ export const tradeStore = {
       write(keys().open, merged);
     }
   },
+
+  /**
+   * Carrega posições abertas directamente da base de dados, substituindo o
+   * estado local. DB é autoritativo — limpa e recarrega.
+   */
+  loadOpenPositions(rows: Record<string, unknown>[]) {
+    if (typeof window === "undefined") return;
+
+    const iconMap: Record<string, string> = {
+      EURUSD: "🇪🇺",
+      EURGBP: "€£",
+      GBPUSD: "🇬🇧",
+      USDJPY: "💴",
+      USDCHF: "🇨🇭",
+      AUDUSD: "🇦🇺",
+      USDCAD: "🇨🇦",
+      NZDUSD: "🇳🇿",
+      EURJPY: "🇪🇺",
+      XAUUSD: "🥇",
+      XAGUSD: "🥈",
+      BTCUSD: "₿",
+      ETHUSD: "Ξ",
+      SOLUSD: "◎",
+      AAPL: "🍎",
+      TSLA: "⚡",
+      NVDA: "🟢",
+      AMZN: "📦",
+      MSFT: "🪟",
+      META: "🔵",
+      GOOGL: "🔍",
+      NFLX: "🎬",
+    };
+
+    const positions: OpenPosition[] = rows
+      .filter((row) => row.status === "open")
+      .map((row) => {
+        const symbol = String(row.symbol || "");
+        const openPrice = parseFloat(String(row.open_price ?? 1));
+        const decimals = Math.max(
+          (openPrice.toString().split(".")[1] ?? "").length,
+          2,
+        );
+        return {
+          id: String(row.id),
+          assetId: symbol.toLowerCase(),
+          symbol,
+          name: String(row.asset_name || symbol),
+          icon: iconMap[symbol] ?? "📊",
+          digits: decimals,
+          tvSymbol: "",
+          type: (row.type === "sell" ? "sell" : "buy") as "buy" | "sell",
+          lots: parseFloat(String(row.lots ?? 0)),
+          amount: parseFloat(String(row.amount ?? 0)),
+          leverage: parseInt(String(row.leverage ?? 1)),
+          openPrice,
+          spread: parseFloat(String(row.spread ?? 0)),
+          stopLoss:
+            row.stop_loss != null ? parseFloat(String(row.stop_loss)) : null,
+          takeProfit:
+            row.take_profit != null
+              ? parseFloat(String(row.take_profit))
+              : null,
+          openedAt: String(row.opened_at ?? new Date().toISOString()),
+        };
+      });
+
+    // Substituir estado local pelos dados do servidor (DB é autoritativo)
+    write(keys().open, positions);
+  },
+
   closePositionDirect(
     id: string,
     closePrice: number,
