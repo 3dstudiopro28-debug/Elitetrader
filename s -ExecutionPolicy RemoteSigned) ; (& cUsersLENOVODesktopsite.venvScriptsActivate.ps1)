@@ -1,0 +1,83 @@
+[33m2278ccd[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m fix: memoria de posicoes - RLS, account_id, SIGNED_OUT, debug logs
+[33m2f60ebc[m fix: resolver 401 - GET /api/auth/login renova cookie + Authorization header nos fetch
+[33mfd3615f[m fix: posicoes com memoria persistente (merge open+closed, fix closed token)
+[33m960ba0f[m fix: middleware propaga access_token renovado para cookie sb-access-token (resolve 401)
+[33m57f6209[m fix: atualizar admin_overrides, middleware e close position
+[33mcbe768a[m fix: substituir syncPositions por pollOpenPositions chamando GET /api/positions?status=open
+[33m18820b6[m fix: criar middleware.ts (refresh token Supabase) e corrigir insert admin_overrides com user_id
+[33m7fc3fd1[m fix: remover account_id do upsert de positions (coluna inexistente)
+[33m8ea8f61[m fix: getOrCreateAccount usa upsert e getAccount usa .limit(1) para evitar erro de chave duplicada
+[33m28e9029[m debug: melhorar logs GET /api/positions com user_id, status e dados retornados
+[33m705a4f2[m debug: adicionar logs de sincronizacao de posicoes (PASSO 1-5, A-B)
+[33m5e5320f[m fix: sincronizar posicoes abertas do DB ao montar dashboard (loadOpenPositions)
+[33m079ffe7[m fix: getOrCreateAccount upsert profile antes de criar conta (resolve FK violation)
+[33m4b05d14[m fix: sincronização de posições no login (merge DB+local, logs de erro, sem guard precoce)
+[33m9ea0708[m feat: persistência de posições via Supabase (fix schema, novos endpoints PATCH/GET)
+[33m1a37217[m fix: corrige schema admin_overrides e ajustes de rotas API
+[33mdb8c795[m Revert to stable state of today 11:00 (b3019c2)
+[33mcb684a1[m Revert to stable state of Saturday 10:00 (b6fc34e)
+[33mb3019c2[m Fix admin 401: autenticar via sessao Supabase e exigir service role
+[33mb25a871[m UX: evitar logout automatico e pedir confirmacao antes de redirecionar
+[33m4b64a8e[m Fix: GET 2-step query, POST/DELETE passar token ao createServerClient
+[33m14dca02[m Fix: preservar modo no logout, filtrar posicoes por modo, auto-criar conta no DB
+[33mdd15d16[m Fix: enviar token de autenticacao ao persistir posicoes no DB
+[33m552ec8e[m Corrigir persistencia de posicoes e estabilidade demo/real
+[33m93a2ded[m Ajuste fino: reduzir levemente velocidade de patrimonio e margens
+[33md9b2e83[m Suavizar levemente velocidade de patrimonio e margens
+[33m7834c36[m Suavizar oscilacao da coluna Alterar 1D com variacoes lentas
+[33mf54295d[m Alinhar velocidade de métricas com compra/venda e PnL verde no positivo
+[33ma81e1ea[m Ajustar preço base do ouro para 4700 (conforme gráfico)
+[33m20e7152[m Aumentar spread do ouro para 10 pontos (diferença entre compra e venda)
+[33m2030dfb[m Aumentar spread do ouro (XAUUSD) para melhor diferença entre compra e venda
+[33m2c65c50[m Ajuste fino de velocidade - ponto perfeito
+[33m34f5c57[m Aumentar mais velocidade de preços - interface mais dinâmica
+[33mcc63033[m Aumentar velocidade de variação de preços
+[33mb3f548a[m Rebalancear velocidade de variação de preços para ritmo médio-internacional
+[33m74fcc56[m Revert to stable state of Sunday 08:00 (6761b4d)
+[33m9d8b511[m Revert to stable state of Saturday 22:00 TRT (401390f)
+[33me15cd2b[m Revert to stable state of Saturday (commit 59c8c77)
+[33m4713574[m Sua mensagem descritiva aqui
+[33m9c47be8[m Revert to stable state of Sunday (commit 6761b4d)
+[33md69b48f[m Revert to stable state of April 20 (commit 8585bcf)
+[33m28bfd37[m feat: implementa SWR para otimizar carregamento do saldo
+[33me6a4925[m fix: não apaga dados do CRM local ao sair ou excluir conta, apenas tokens de sessão
+[33m2824e32[m fix(logout): não apaga dados do CRM local, apenas tokens de sessão
+[33md1f2941[m fix(user-store): balance sempre reflete saldo correto após ajuste admin
+[33m68e2a38[m Fix: seedIfEmpty fora da interface, utilitários e tipos corrigidos, persistência garantida
+[33m38d3e6d[m Fix: seedIfEmpty nunca sobrescreve dados reais no localStorage
+[33ma265a10[m Persistência local: saldo real do usuário nunca some
+[33m88decd5[m Fix: nunca sobrescrever saldo real ao registrar usuário
+[33m576b025[m CRM: remover fallback demo, mostrar apenas saldo real
+[33mb8fa224[m Fix real account detection in admin CRM balances
+[33m50d18e3[m CRM admin uses real account data only
+[33ma448f82[m Fix CRM real balance mapping and drawer sync
+[33m0c48ac6[m Block orders when free margin is insufficient
+[33m2f9b09c[m Fix user stats balance source precedence to prevent oscillation
+[33m8585bcf[m Reduce trading price variation speed and polling cadence
+[33m6761b4d[m[33m ([m[1;32mbackup-domingo-estavel[m[33m)[m chore: publicar alteracoes pendentes
+[33m59c8c77[m[33m ([m[1;32mbackup-sabado-estavel[m[33m)[m fix: enforce gold admin override on bid/ask and execution
+[33m202620b[m fix: harden gold price override API and UI error handling
+[33m0fa88e0[m fix: persist offline state immediately for CRM
+[33ma5d2855[m fix: persist and stabilize crm online status
+[33m372dccf[m fix: stabilize crm online presence for long sessions
+[33maef78be[m fix: realtime presence for CRM online status
+[33m8d0df34[m feat: show online/offline customer presence in CRM
+[33m1505f12[m fix: apply accented forgot-password text
+[33mf966b55[m fix: use customer email in forgot-password message
+[33m5f3b834[m fix: update forgot-password confirmation text
+[33m401390f[m feat: simulate forgot-password message on login
+[33mfb37931[m fix: load real XAUUSD quote on weekends before freeze
+[33mf9c8c6c[m fix: freeze weekend movement and enforce visible bid/ask spread
+[33m81195c5[m fix: fallback XAUUSD quote to gold-api when finnhub fails
+[33m73b9357[m fix: anchor XAUUSD bid/ask to OANDA quote feed
+[33m1b84746[m perf: accelerate all dashboard number movements globally
+[33m0e156ef[m perf: make price and bid/ask movements even faster
+[33m5fe6f0f[m perf: speed up dashboard price and bid/ask updates
+[33m213ebae[m fix: default all logins to real mode and persist admin realtime sync
+[33mb6fc34e[m fix: header mobile stats, sidebar pos, equity formula, cross-device sync, unclickable overlay
+[33m5caf4f1[m fix: substituir upsert por UPDATE+INSERT explicito no admin PATCH
+[33m1d0de1f[m fix: saldo real nao refletia e contaminava conta demo
+[33m4d57f6a[m feat: responsividade mobile/tablet/TV completa
+[33m6546d21[m fix: landing page intocavel + saldo a resetar para zero
+[33mb4e11f8[m fix: supabase safe init para evitar crash sem env vars
+[33m39497e3[m Primeiro commit do projeto EliteTrader
