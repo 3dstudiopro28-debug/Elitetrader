@@ -233,38 +233,35 @@ export default function DashboardLayout({
     };
   }, [ready]);
 
-  // ── Sync de estatísticas de posições para o CRM admin ───────────────────
+  // ── Sync periódico: manter posições abertas em sincronização com o DB ────
   useEffect(() => {
     if (!ready) return;
 
-    async function syncPositions() {
+    async function pollOpenPositions() {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) return;
-        const open = tradeStore.getOpen();
-        const closed = tradeStore.getClosed();
-        const totalPnl = closed.reduce((sum, p) => sum + (p.pnl ?? 0), 0);
-        await fetch("/api/user/positions/sync", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            openCount: open.length,
-            closedCount: closed.length,
-            totalPnl,
-          }),
+        console.log("[dashboard] A chamar a API correta: /api/positions?status=open");
+        const response = await fetch("/api/positions?status=open", {
+          credentials: "include",
+          cache: "no-store",
         });
-      } catch {
-        // silencioso
+
+        if (!response.ok) {
+          console.warn("[dashboard] A API /api/positions respondeu com erro:", response.status);
+          return;
+        }
+
+        const json = await response.json();
+        if (json.data && Array.isArray(json.data)) {
+          tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
+          console.log(`[dashboard] Sincronização concluída. ${json.data.length} posições carregadas.`);
+        }
+      } catch (e) {
+        console.error("[dashboard] Erro crítico durante a sincronização:", e);
       }
     }
 
-    syncPositions();
-    const syncId = setInterval(syncPositions, 8_000);
+    pollOpenPositions();
+    const syncId = setInterval(pollOpenPositions, 8_000);
     return () => clearInterval(syncId);
   }, [ready]);
 
