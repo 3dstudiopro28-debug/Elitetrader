@@ -24,8 +24,26 @@ export async function middleware(req: NextRequest) {
     },
   );
 
-  // Refresca o token de acesso automaticamente se estiver expirado
-  await supabase.auth.getSession();
+  // Refresca o token de acesso automaticamente se estiver expirado.
+  // O @supabase/ssr gere os seus próprios cookies internos (sb-<ref>-auth-token).
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  // Propagar o access_token (possivelmente renovado) para o cookie customizado
+  // que todas as nossas API routes leem: sb-access-token
+  if (session?.access_token) {
+    const currentCustomCookie = req.cookies.get("sb-access-token")?.value;
+    if (currentCustomCookie !== session.access_token) {
+      res.cookies.set("sb-access-token", session.access_token, {
+        httpOnly: true,
+        path: "/",
+        maxAge: 60 * 60 * 24 * 7,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      });
+    }
+  }
 
   return res;
 }
