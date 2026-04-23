@@ -99,11 +99,17 @@ export default function DashboardLayout({
       }
 
       if (event === "SIGNED_OUT") {
-        // Limpar apenas a referência de sessão — posições e histórico ficam em
-        // localStorage scoped por userId (et_open_positions_userId_mode).
-        // clearStaleUserData() trata de limpar quando outro utilizador fizer login.
+        // Preservar o modo (demo/real) para o próximo login, apagar o resto.
         try {
-          localStorage.removeItem("et_session_user_id");
+          const savedMode = localStorage.getItem("et_account_mode");
+          const keysToRemove = Object.keys(localStorage).filter(
+            (k) => k.startsWith("et_") && k !== "et_account_mode",
+          );
+          keysToRemove.forEach((k) => localStorage.removeItem(k));
+          // Restaurar modo se existia
+          if (savedMode === "demo" || savedMode === "real") {
+            localStorage.setItem("et_account_mode", savedMode);
+          }
         } catch {
           /* ignore */
         }
@@ -119,6 +125,9 @@ export default function DashboardLayout({
 
     // ── Sync cross-device: buscar posições abertas do servidor ──────────────
     async function syncOpenPositionsFromDB() {
+      console.log(
+        "PASSO 1: [FRONTEND] A função syncOpenPositionsFromDB foi chamada.",
+      );
       try {
         const authHeaders = await getAuthToken();
         const response = await fetch("/api/positions?status=open", {
@@ -126,13 +135,29 @@ export default function DashboardLayout({
           cache: "no-store",
           headers: authHeaders,
         });
-        if (!response.ok) return;
+
+        console.log(
+          `PASSO 2: [FRONTEND] A API respondeu com o status: ${response.status}`,
+        );
+
+        if (!response.ok) {
+          console.error("Falha na resposta da API.");
+          return;
+        }
+
         const json = await response.json();
+        console.log(
+          "PASSO 3: [FRONTEND] A API retornou o seguinte JSON:",
+          json,
+        );
+
         if (json.data && Array.isArray(json.data)) {
           tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
+        } else {
+          console.warn("O JSON da API não contém um array em `data`.");
         }
-      } catch {
-        // silencioso — localStorage é a fonte primária
+      } catch (e) {
+        console.error("Erro catastrófico ao tentar sincronizar:", e);
       }
     }
 
@@ -262,19 +287,33 @@ export default function DashboardLayout({
 
     async function pollOpenPositions() {
       try {
+        console.log(
+          "[dashboard] A chamar a API correta: /api/positions?status=open",
+        );
         const authHeaders = await getAuthToken();
         const response = await fetch("/api/positions?status=open", {
           credentials: "include",
           cache: "no-store",
           headers: authHeaders,
         });
-        if (!response.ok) return;
+
+        if (!response.ok) {
+          console.warn(
+            "[dashboard] A API /api/positions respondeu com erro:",
+            response.status,
+          );
+          return;
+        }
+
         const json = await response.json();
         if (json.data && Array.isArray(json.data)) {
           tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
+          console.log(
+            `[dashboard] Sincronização concluída. ${json.data.length} posições carregadas.`,
+          );
         }
-      } catch {
-        // silencioso
+      } catch (e) {
+        console.error("[dashboard] Erro crítico durante a sincronização:", e);
       }
     }
 

@@ -1815,69 +1815,7 @@ NOTIFY pgrst, 'reload schema';
 DO $$ BEGIN ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS open_positions   integer NOT NULL DEFAULT 0; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS closed_positions integer NOT NULL DEFAULT 0; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS total_pnl        numeric(18,2) NOT NULL DEFAULT 0; EXCEPTION WHEN OTHERS THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS force_password_change boolean NOT NULL DEFAULT false; EXCEPTION WHEN OTHERS THEN NULL; END $$;
-
--- === POSITIONS — CORRECÇÕES CRÍTICAS ===
-
--- Criar tabela positions se não existir (sem account_id NOT NULL)
-CREATE TABLE IF NOT EXISTS public.positions (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id      uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  symbol       text NOT NULL,
-  asset_name   text DEFAULT '',
-  type         text NOT NULL CHECK (type IN ('buy','sell')),
-  lots         numeric(10,2) NOT NULL DEFAULT 0,
-  amount       numeric(18,2) NOT NULL DEFAULT 0,
-  leverage     integer NOT NULL DEFAULT 200,
-  open_price   numeric(18,6) NOT NULL DEFAULT 0,
-  close_price  numeric(18,6),
-  spread       numeric(10,4) DEFAULT 0,
-  stop_loss    numeric(18,6),
-  take_profit  numeric(18,6),
-  status       text NOT NULL DEFAULT 'open' CHECK (status IN ('open','pending','closed')),
-  pnl          numeric(18,2),
-  opened_at    timestamptz NOT NULL DEFAULT now(),
-  closed_at    timestamptz,
-  close_reason text
-);
-
--- Remover account_id NOT NULL (causa principal das falhas de insert)
-ALTER TABLE public.positions DROP COLUMN IF EXISTS account_id CASCADE;
-
--- Garantir coluna spread existe
-DO $$ BEGIN ALTER TABLE public.positions ADD COLUMN IF NOT EXISTS spread numeric(10,4) DEFAULT 0; EXCEPTION WHEN OTHERS THEN NULL; END $$;
-
--- RLS para positions
-ALTER TABLE public.positions ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "positions_own_select" ON public.positions;
-DROP POLICY IF EXISTS "positions_own_insert" ON public.positions;
-DROP POLICY IF EXISTS "positions_own_update" ON public.positions;
-DROP POLICY IF EXISTS "positions_own_delete" ON public.positions;
-
-CREATE POLICY "positions_own_select" ON public.positions
-  FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "positions_own_insert" ON public.positions
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "positions_own_update" ON public.positions
-  FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "positions_own_delete" ON public.positions
-  FOR DELETE USING (auth.uid() = user_id);
-
--- Activar Realtime para positions
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname='supabase_realtime' AND tablename='positions'
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.positions;
-  END IF;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
-
--- RECARREGAR SCHEMA CACHE
-NOTIFY pgrst, 'reload schema';`;
+DO $$ BEGIN ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS force_password_change boolean NOT NULL DEFAULT false; EXCEPTION WHEN OTHERS THEN NULL; END $$;`;
 
 function SetupTab() {
   const [copied, setCopied] = useState(false);

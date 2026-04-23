@@ -41,8 +41,7 @@ async function getAccount(
 
 /**
  * Busca a conta do utilizador ou cria uma nova se não existir.
- * Usa INSERT com tratamento de erro 23505 (unique violation) para funcionar
- * com qualquer schema (UNIQUE user_id ou UNIQUE(user_id, mode)).
+ * Usa upsert para ser seguro contra race conditions e chaves duplicadas.
  */
 async function getOrCreateAccount(
   sb: ReturnType<typeof createServerClient>,
@@ -51,39 +50,64 @@ async function getOrCreateAccount(
 ): Promise<AccountRow | null> {
   // 1. Tentar buscar conta existente
   const existing = await getAccount(sb, userId);
-  if (existing) return existing;
+  if (existing) {
+    console.log(`[getOrCreateAccount] Conta encontrada para user ${userId}.`);
+    return existing;
+  }
+
+  console.log(
+    `[getOrCreateAccount] Conta não encontrada. A criar para user ${userId}...`,
+  );
 
   // 2. Garantir que o perfil existe (FK: accounts.user_id → profiles.id)
-  await sb
+  const { error: profileErr } = await sb
     .from("profiles")
     .upsert(
       { id: userId, email: userEmail, name: "" },
       { onConflict: "id", ignoreDuplicates: true },
     );
-
-  // 3. Tentar criar conta — se já existir (23505), simplesmente re-ler
-  const { error: insertErr } = await sb
-    .from("accounts")
-    .insert({
-      user_id: userId,
-      balance: 1_000_000,
-      leverage: 200,
-      currency: "USD",
-    });
-
-  if (insertErr && insertErr.code !== "23505") {
-    // Erro inesperado — tentar com mode explícito (schema com UNIQUE(user_id, mode))
-    await sb.from("accounts").insert({
-      user_id: userId,
-      mode: "real",
-      balance: 1_000_000,
-      leverage: 200,
-      currency: "USD",
-    });
+  if (profileErr) {
+    console.error(
+      "[getOrCreateAccount] profile upsert error:",
+      profileErr.message,
+      "| code:",
+      profileErr.code,
+    );
   }
 
-  // Re-ler independentemente do resultado do insert
-  return await getAccount(sb, userId);
+  // 3. Upsert da conta — evita erro de chave duplicada (23505) em qualquer schema
+  const { data, error: upsertErr } = await sb
+    .from("accounts")
+    .upsert(
+      {
+        user_id: userId,
+        balance: 1_000_000,
+        leverage: 200,
+        currency: "USD",
+      },
+      { onConflict: "user_id", ignoreDuplicates: true },
+    )
+    .select("id, balance")
+    .maybeSingle();
+
+  if (upsertErr) {
+    console.error(
+      "[getOrCreateAccount] accounts upsert error:",
+      upsertErr.message,
+      "| code:",
+      upsertErr.code,
+    );
+    // Último recurso: re-ler (pode existir com constraint diferente)
+    return await getAccount(sb, userId);
+  }
+
+  // Com ignoreDuplicates=true, se já existia não retorna dados — re-ler
+  if (!data) {
+    return await getAccount(sb, userId);
+  }
+
+  console.log(`[getOrCreateAccount] Nova conta criada para user ${userId}.`);
+  return (data as AccountRow | null) ?? null;
 }
 
 export async function GET(req: NextRequest) {
