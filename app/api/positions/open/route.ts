@@ -1,7 +1,7 @@
 /**
  * GET    /api/positions/open  — posições abertas do utilizador autenticado
  * POST   /api/positions/open  — abrir nova posição (persiste no Supabase)
- * DELETE /api/positions/open  — fechar posição (persiste PnL no Supabase)
+ * DELETE /api/positions/open  — fechar posição (retrocompatibilidade; preferir PATCH /api/positions/close/[id])
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,6 +13,36 @@ function getAccessToken(req: NextRequest): string | null {
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ")) return auth.slice(7);
   return null;
+}
+
+type AccountRow = { id: string; balance: number };
+
+/** Busca a conta sem filtro de modo — o schema real de accounts não tem coluna mode */
+async function getAccount(
+  sb: ReturnType<typeof createServerClient>,
+  userId: string,
+): Promise<AccountRow | null> {
+  const { data } = await sb
+    .from("accounts")
+    .select("id, balance")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data as AccountRow | null) ?? null;
+}
+
+/** Cria a conta se ainda não existir */
+async function getOrCreateAccount(
+  sb: ReturnType<typeof createServerClient>,
+  userId: string,
+): Promise<AccountRow | null> {
+  const existing = await getAccount(sb, userId);
+  if (existing) return existing;
+  const { data } = await sb
+    .from("accounts")
+    .insert({ user_id: userId, balance: 1_000_000, leverage: 200, currency: "USD" })
+    .select("id, balance")
+    .single();
+  return (data as AccountRow | null) ?? null;
 }
 
 export async function GET(req: NextRequest) {
@@ -27,31 +57,7 @@ export async function GET(req: NextRequest) {
     } = await sb.auth.getUser(token);
     if (authErr || !user) return NextResponse.json({ success: true, data: [] });
 
-    const mode = req.nextUrl.searchParams.get("mode");
-
-    if (mode === "demo" || mode === "real") {
-      // Passo 1: encontrar a conta pelo modo
-      const { data: account } = await sb
-        .from("accounts")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("mode", mode)
-        .maybeSingle();
-
-      if (!account) return NextResponse.json({ success: true, data: [] });
-
-      // Passo 2: posições desta conta
-      const { data: positions } = await sb
-        .from("positions")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("account_id", account.id)
-        .eq("status", "open")
-        .order("opened_at", { ascending: false });
-
-      return NextResponse.json({ success: true, data: positions ?? [] });
-    }
-
+    // Consulta directa por user_id — não depende da coluna mode em accounts
     const { data: positions } = await sb
       .from("positions")
       .select("*")
@@ -71,7 +77,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const posData = {
-      id: body.id ?? "pos_" + Date.now(),
+      id: body.id ?? crypto.randomUUID(),
       symbol: body.symbol ?? "",
       asset_name: body.name ?? body.assetId ?? "",
       type: body.type ?? "buy",
@@ -79,10 +85,11 @@ export async function POST(req: NextRequest) {
       amount: body.amount ?? 0,
       leverage: body.leverage ?? 200,
       open_price: body.openPrice ?? 0,
+      spread: body.spread ?? 0,
       stop_loss: body.stopLoss ?? null,
       take_profit: body.takeProfit ?? null,
       status: "open",
-      opened_at: new Date().toISOString(),
+      opened_at: body.openedAt ?? new Date().toISOString(),
     };
 
     // Persistir no Supabase se autenticado
@@ -94,37 +101,11 @@ export async function POST(req: NextRequest) {
           error: authErr,
         } = await sb.auth.getUser(token);
         if (!authErr && user) {
-          const posMode = body.mode ?? "real";
-          let { data: account } = await sb
-            .from("accounts")
-            .select("id")
-            .eq("user_id", user.id)
-            .eq("mode", posMode)
-            .maybeSingle();
-
-          // Se a conta não existe, criá-la automaticamente
-          if (!account) {
-            const { data: newAccount } = await sb
-              .from("accounts")
-              .insert({
-                user_id: user.id,
-                mode: posMode,
-                balance: posMode === "demo" ? 100_000 : 0,
-                leverage: 200,
-                currency: "USD",
-              })
-              .select("id")
-              .single();
-            account = newAccount;
-          }
-
+          // Usa getOrCreateAccount sem filtro de modo
+          const account = await getOrCreateAccount(sb, user.id);
           if (account) {
             await sb.from("positions").upsert(
-              {
-                ...posData,
-                user_id: user.id,
-                account_id: account.id,
-              },
+              { ...posData, user_id: user.id, account_id: account.id },
               { onConflict: "id", ignoreDuplicates: false },
             );
           }
@@ -150,7 +131,7 @@ export async function DELETE(req: NextRequest) {
   const token = getAccessToken(req);
 
   try {
-    const { positionId, closePrice, pnl, mode, closeReason } = await req.json();
+    const { positionId, closePrice, pnl, closeReason } = await req.json();
 
     // Fechar no Supabase se autenticado
     if (token && positionId) {
@@ -173,27 +154,19 @@ export async function DELETE(req: NextRequest) {
             .eq("id", positionId)
             .eq("user_id", user.id);
 
-          // Reflectir PnL no saldo da conta
+          // Reflectir PnL no saldo da conta (sem filtro de modo)
           if (typeof pnl === "number" && pnl !== 0) {
-            const accountMode = mode ?? "real";
-            const { data: account } = await sb
-              .from("accounts")
-              .select("id, balance")
-              .eq("user_id", user.id)
-              .eq("mode", accountMode)
-              .maybeSingle();
+            const account = await getAccount(sb, user.id);
             if (account) {
               await sb
                 .from("accounts")
-                .update({
-                  balance: Number(account.balance) + pnl,
-                })
+                .update({ balance: Number(account.balance) + pnl })
                 .eq("id", account.id);
             }
           }
         }
       } catch {
-        /* localStorage é a fonte primária; silêncio se DB falhar */
+        /* silencioso */
       }
     }
 

@@ -224,24 +224,18 @@ export const tradeStore = {
 
     // Persistir no Supabase em background (fire-and-forget)
     if (typeof window !== "undefined") {
-      const mode = localStorage.getItem(MODE_KEY) ?? "real";
       import("@/lib/supabase").then(({ supabase }) => {
         supabase.auth.getSession().then(({ data: { session } }) => {
           if (!session?.access_token) return;
-          fetch("/api/positions/open", {
-            method: "DELETE",
+          // PATCH /api/positions/close/[id] — endpoint REST dedicado ao fecho
+          fetch(`/api/positions/close/${pos.id}`, {
+            method: "PATCH",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${session.access_token}`,
             },
             credentials: "include",
-            body: JSON.stringify({
-              positionId: pos.id,
-              closePrice,
-              pnl,
-              closeReason: reason,
-              mode,
-            }),
+            body: JSON.stringify({ closePrice, pnl, closeReason: reason }),
           }).catch(() => {}); // falha silenciosa — localStorage é a fonte primária
         });
       });
