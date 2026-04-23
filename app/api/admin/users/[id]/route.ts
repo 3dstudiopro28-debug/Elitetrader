@@ -367,14 +367,12 @@ export async function PATCH(
         }
       } else {
         // Inserir nova linha — id é a FK para profiles.id (1:1 com o utilizador)
-        const { error: ovInsertErr } = await sb
-          .from("admin_overrides")
-          .insert({
-            id,
-            user_id: id,
-            updated_by: "admin",
-            ...dbOverridePatch,
-          });
+        const { error: ovInsertErr } = await sb.from("admin_overrides").insert({
+          id,
+          user_id: id,
+          updated_by: "admin",
+          ...dbOverridePatch,
+        });
         if (ovInsertErr) {
           console.error(
             "[admin PATCH] admin_overrides insert error:",

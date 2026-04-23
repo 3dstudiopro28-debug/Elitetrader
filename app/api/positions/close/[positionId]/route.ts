@@ -78,7 +78,10 @@ export async function PATCH(
       .eq("status", "open"); // só fecha posições que ainda estejam abertas
 
     if (updateErr) {
-      console.error("[PATCH /api/positions/close] update error:", updateErr.message);
+      console.error(
+        "[PATCH /api/positions/close] update error:",
+        updateErr.message,
+      );
       return NextResponse.json(
         { success: false, error: updateErr.message },
         { status: 400 },
