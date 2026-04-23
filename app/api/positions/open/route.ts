@@ -192,7 +192,7 @@ export async function POST(req: NextRequest) {
             const { error: upsertErr } = await sb
               .from("positions")
               .upsert(
-                { ...posData, user_id: user.id, account_id: account.id },
+                { ...posData, user_id: user.id },
                 { onConflict: "id", ignoreDuplicates: false },
               );
 
