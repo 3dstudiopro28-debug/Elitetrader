@@ -366,10 +366,15 @@ export async function PATCH(
           warnings.push("Admin override (update): " + ovUpdateErr.message);
         }
       } else {
-        // Inserir nova linha — id = user_id (FK para profiles.id)
+        // Inserir nova linha — id é a FK para profiles.id (1:1 com o utilizador)
         const { error: ovInsertErr } = await sb
           .from("admin_overrides")
-          .insert({ id, ...dbOverridePatch });
+          .insert({
+            id,
+            user_id: id,
+            updated_by: "admin",
+            ...dbOverridePatch,
+          });
         if (ovInsertErr) {
           console.error(
             "[admin PATCH] admin_overrides insert error:",
