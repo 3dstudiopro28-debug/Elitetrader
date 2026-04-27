@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { supabase } from "@/lib/supabase";
-import { tradeStore } from "@/lib/trade-store";
+import { preserveTradingDataOnLogout, tradeStore } from "@/lib/trade-store";
 import { accountStore } from "@/lib/account-store";
 import { notificationStore } from "@/lib/notification-store";
 import type { GhostPayload } from "@/lib/ghost-pending-store";
@@ -99,17 +99,8 @@ export default function DashboardLayout({
       }
 
       if (event === "SIGNED_OUT") {
-        // Preservar o modo (demo/real) para o próximo login, apagar o resto.
         try {
-          const savedMode = localStorage.getItem("et_account_mode");
-          const keysToRemove = Object.keys(localStorage).filter(
-            (k) => k.startsWith("et_") && k !== "et_account_mode",
-          );
-          keysToRemove.forEach((k) => localStorage.removeItem(k));
-          // Restaurar modo se existia
-          if (savedMode === "demo" || savedMode === "real") {
-            localStorage.setItem("et_account_mode", savedMode);
-          }
+          preserveTradingDataOnLogout();
         } catch {
           /* ignore */
         }

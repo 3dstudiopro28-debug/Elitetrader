@@ -3,6 +3,34 @@
 const MODE_KEY = "et_account_mode";
 const EVENT_NAME = "et-trade-update";
 
+const PRESERVED_LOGOUT_PREFIXES = [
+  "et_open_positions_",
+  "et_closed_positions_",
+  "et_pending_orders_",
+];
+
+export function preserveTradingDataOnLogout() {
+  if (typeof window === "undefined") return;
+
+  const backup: Record<string, string> = {};
+  Object.keys(localStorage).forEach((key) => {
+    if (
+      key === MODE_KEY ||
+      key === "et_session_user_id" ||
+      PRESERVED_LOGOUT_PREFIXES.some((prefix) => key.startsWith(prefix))
+    ) {
+      const value = localStorage.getItem(key);
+      if (value !== null) backup[key] = value;
+    }
+  });
+
+  localStorage.clear();
+
+  Object.entries(backup).forEach(([key, value]) => {
+    localStorage.setItem(key, value);
+  });
+}
+
 /** Returns storage keys scoped to the current account mode (demo | real) */
 function keys() {
   const m =

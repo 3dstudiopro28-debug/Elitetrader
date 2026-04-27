@@ -33,7 +33,7 @@ import {
   DEMO_START_BALANCE,
 } from "@/lib/account-store";
 import { profileStore } from "@/lib/profile-store";
-import { tradeStore } from "@/lib/trade-store";
+import { preserveTradingDataOnLogout, tradeStore } from "@/lib/trade-store";
 
 const DEMO_ID_KEY = "et_demo_account_id";
 const REAL_ID_KEY = "et_real_account_id";
@@ -231,40 +231,7 @@ export function DashboardSidebar({
   }
 
   const handleLogout = useCallback(async () => {
-    // ✅ CORREÇÃO: Preservar posições no localStorage durante o logout
-    if (typeof window !== "undefined") {
-      // Identificar chaves que contêm dados de posições
-      const keysToPreserve: string[] = [];
-      Object.keys(localStorage).forEach((key) => {
-        if (
-          key.startsWith("et_open_positions_") ||
-          key.startsWith("et_closed_positions_") ||
-          key.startsWith("et_pending_orders_")
-        ) {
-          keysToPreserve.push(key);
-        }
-      });
-
-      // Fazer backup das posições
-      const backup: Record<string, string | null> = {};
-      keysToPreserve.forEach((key) => {
-        backup[key] = localStorage.getItem(key);
-      });
-
-      // Limpar localStorage
-      localStorage.clear();
-
-      // Restaurar posições preservadas
-      Object.entries(backup).forEach(([key, value]) => {
-        if (value) localStorage.setItem(key, value);
-      });
-
-      console.log(
-        "✅ [LOGOUT] Posições preservadas:",
-        keysToPreserve.length,
-        "chaves",
-      );
-    }
+    preserveTradingDataOnLogout();
 
     try {
       await supabase.auth.signOut();
