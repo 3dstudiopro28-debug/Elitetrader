@@ -15,6 +15,18 @@ function getAccessToken(req: NextRequest): string | null {
   return null;
 }
 
+function isMissingModeColumn(err: unknown): boolean {
+  const msg =
+    typeof err === "object" && err && "message" in err
+      ? String((err as { message?: unknown }).message ?? "")
+      : "";
+  const code =
+    typeof err === "object" && err && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  return code === "42703" || /column .*mode|mode does not exist/i.test(msg);
+}
+
 export async function GET(req: NextRequest) {
   console.log("API GET /api/positions: Pedido recebido.");
 
@@ -58,30 +70,51 @@ export async function GET(req: NextRequest) {
       console.log(`API GET /api/positions: Parâmetro mode recebido: "${mode}"`);
     }
 
-    let query = sb
-      .from("positions")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("opened_at", { ascending: false });
+    const buildBaseQuery = () => {
+      let query = sb
+        .from("positions")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("opened_at", { ascending: false });
+
+      if (status === "open") {
+        query = query.eq("status", "open");
+        console.log("API GET /api/positions: A aplicar filtro status = 'open'");
+      } else if (status === "closed") {
+        query = query.eq("status", "closed").limit(500);
+        console.log(
+          "API GET /api/positions: A aplicar filtro status = 'closed'",
+        );
+      } else {
+        console.log(
+          "API GET /api/positions: Sem filtro de status (retorna todas).",
+        );
+      }
+
+      return query;
+    };
+
+    let query = buildBaseQuery();
 
     if (mode === "demo" || mode === "real") {
       query = query.eq("mode", mode);
       console.log(`API GET /api/positions: A aplicar filtro mode = '${mode}'`);
     }
 
-    if (status === "open") {
-      query = query.eq("status", "open");
-      console.log("API GET /api/positions: A aplicar filtro status = 'open'");
-    } else if (status === "closed") {
-      query = query.eq("status", "closed").limit(500);
-      console.log("API GET /api/positions: A aplicar filtro status = 'closed'");
-    } else {
-      console.log(
-        "API GET /api/positions: Sem filtro de status (retorna todas).",
-      );
-    }
+    let { data: positions, error } = await query;
 
-    const { data: positions, error } = await query;
+    if (
+      error &&
+      (mode === "demo" || mode === "real") &&
+      isMissingModeColumn(error)
+    ) {
+      console.warn(
+        "API GET /api/positions: coluna mode ausente em positions, a usar fallback sem filtro de modo.",
+      );
+      const fallback = await buildBaseQuery();
+      positions = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       console.error(

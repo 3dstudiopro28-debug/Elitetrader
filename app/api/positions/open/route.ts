@@ -15,6 +15,21 @@ function getAccessToken(req: NextRequest): string | null {
   return null;
 }
 
+function hasMissingColumn(err: unknown, column: "mode" | "status"): boolean {
+  const msg =
+    typeof err === "object" && err && "message" in err
+      ? String((err as { message?: unknown }).message ?? "")
+      : "";
+  const code =
+    typeof err === "object" && err && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  return (
+    code === "42703" &&
+    new RegExp(`column .*${column}|${column} does not exist`, "i").test(msg)
+  );
+}
+
 type AccountRow = { id: string; balance: number };
 
 async function getAccount(
@@ -22,23 +37,48 @@ async function getAccount(
   userId: string,
   mode: "demo" | "real",
 ): Promise<AccountRow | null> {
-  const { data, error } = await sb
+  const withMode = await sb
     .from("accounts")
     .select("id, balance")
     .eq("user_id", userId)
     .eq("mode", mode)
     .maybeSingle();
 
-  if (error) {
-    console.error(
-      "[getAccount] erro ao buscar conta:",
-      error.message,
-      "| code:",
-      error.code,
-    );
+  if (!withMode.error) {
+    return (withMode.data as AccountRow | null) ?? null;
   }
 
-  return (data as AccountRow | null) ?? null;
+  if (!hasMissingColumn(withMode.error, "mode")) {
+    console.error(
+      "[getAccount] erro ao buscar conta:",
+      withMode.error.message,
+      "| code:",
+      withMode.error.code,
+    );
+    return null;
+  }
+
+  console.warn(
+    "[getAccount] coluna mode ausente em accounts, a usar fallback sem filtro por modo.",
+  );
+  const fallback = await sb
+    .from("accounts")
+    .select("id, balance")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (fallback.error) {
+    console.error(
+      "[getAccount] fallback sem mode falhou:",
+      fallback.error.message,
+      "| code:",
+      fallback.error.code,
+    );
+    return null;
+  }
+
+  return (fallback.data as AccountRow | null) ?? null;
 }
 
 async function getOrCreateAccount(
@@ -76,21 +116,43 @@ async function getOrCreateAccount(
 
   const startingBalance = mode === "demo" ? 100_000 : 0;
 
-  const { data, error: upsertErr } = await sb
+  const accountPayload = {
+    user_id: userId,
+    mode,
+    balance: startingBalance,
+    leverage: 200,
+    currency: "USD",
+    status: "active",
+  };
+
+  let { data, error: upsertErr } = await sb
     .from("accounts")
-    .upsert(
-      {
+    .upsert(accountPayload, { onConflict: "user_id,mode" })
+    .select("id, balance")
+    .maybeSingle();
+
+  if (
+    upsertErr &&
+    (hasMissingColumn(upsertErr, "mode") ||
+      hasMissingColumn(upsertErr, "status"))
+  ) {
+    console.warn(
+      "[getOrCreateAccount] schema antigo em accounts (mode/status ausente), a usar fallback de insert sem colunas opcionais.",
+    );
+    const fallbackInsert = await sb
+      .from("accounts")
+      .insert({
         user_id: userId,
-        mode,
         balance: startingBalance,
         leverage: 200,
         currency: "USD",
-        status: "active",
-      },
-      { onConflict: "user_id,mode" },
-    )
-    .select("id, balance")
-    .maybeSingle();
+      })
+      .select("id, balance")
+      .maybeSingle();
+
+    data = fallbackInsert.data;
+    upsertErr = fallbackInsert.error;
+  }
 
   if (upsertErr) {
     console.error(
@@ -194,18 +256,41 @@ export async function POST(req: NextRequest) {
               user.id,
             );
           } else {
-            const { error: upsertErr } = await sb
-              .from("positions")
-              .upsert(
-                { ...posData, user_id: user.id, account_id: account.id },
-                { onConflict: "id", ignoreDuplicates: false },
-              );
+            const payloadWithMode = {
+              ...posData,
+              user_id: user.id,
+              account_id: account.id,
+            };
 
-            if (upsertErr) {
-              dbError = upsertErr.message;
+            let upsertResult = await sb
+              .from("positions")
+              .upsert(payloadWithMode, {
+                onConflict: "id",
+                ignoreDuplicates: false,
+              });
+
+            if (
+              upsertResult.error &&
+              hasMissingColumn(upsertResult.error, "mode")
+            ) {
+              console.warn(
+                "[POST /api/positions/open] coluna mode ausente em positions, a usar fallback sem mode.",
+              );
+              const { mode: _ignoredMode, ...payloadWithoutMode } =
+                payloadWithMode;
+              upsertResult = await sb
+                .from("positions")
+                .upsert(payloadWithoutMode, {
+                  onConflict: "id",
+                  ignoreDuplicates: false,
+                });
+            }
+
+            if (upsertResult.error) {
+              dbError = upsertResult.error.message;
               console.error(
                 "[POST /api/positions/open] upsert error:",
-                upsertErr.message,
+                upsertResult.error.message,
               );
             } else {
               dbSaved = true;
