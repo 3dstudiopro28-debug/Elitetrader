@@ -48,7 +48,8 @@ function applyDefaultForRequiredColumn(
 ): boolean {
   switch (col) {
     case "asset":
-      payload.asset = payload.asset ?? payload.symbol ?? payload.asset_name ?? "UNKNOWN";
+      payload.asset =
+        payload.asset ?? payload.symbol ?? payload.asset_name ?? "UNKNOWN";
       return true;
     case "quantity":
       payload.quantity = payload.quantity ?? payload.lots ?? 1;
@@ -75,7 +76,8 @@ function applyDefaultForRequiredColumn(
       payload.profit_loss = payload.profit_loss ?? 0;
       return true;
     case "created_at":
-      payload.created_at = payload.created_at ?? payload.opened_at ?? new Date().toISOString();
+      payload.created_at =
+        payload.created_at ?? payload.opened_at ?? new Date().toISOString();
       return true;
     case "updated_at":
       payload.updated_at = new Date().toISOString();
@@ -358,7 +360,10 @@ export async function POST(req: NextRequest) {
 
               if (!upsertResult.error) break;
 
-              if (hasMissingColumn(upsertResult.error, "mode") && "mode" in payload) {
+              if (
+                hasMissingColumn(upsertResult.error, "mode") &&
+                "mode" in payload
+              ) {
                 console.warn(
                   "[POST /api/positions/open] coluna mode ausente em positions, nova tentativa sem mode.",
                 );
@@ -367,7 +372,10 @@ export async function POST(req: NextRequest) {
                 continue;
               }
 
-              if (hasMissingColumn(upsertResult.error, "asset") && "asset" in payload) {
+              if (
+                hasMissingColumn(upsertResult.error, "asset") &&
+                "asset" in payload
+              ) {
                 console.warn(
                   "[POST /api/positions/open] coluna asset ausente em positions, nova tentativa sem asset.",
                 );
