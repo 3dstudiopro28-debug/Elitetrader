@@ -15,7 +15,10 @@ function getAccessToken(req: NextRequest): string | null {
   return null;
 }
 
-function hasMissingColumn(err: unknown, column: "mode" | "status"): boolean {
+function hasMissingColumn(
+  err: unknown,
+  column: "mode" | "status" | "asset",
+): boolean {
   const msg =
     typeof err === "object" && err && "message" in err
       ? String((err as { message?: unknown }).message ?? "")
@@ -28,6 +31,58 @@ function hasMissingColumn(err: unknown, column: "mode" | "status"): boolean {
     code === "42703" &&
     new RegExp(`column .*${column}|${column} does not exist`, "i").test(msg)
   );
+}
+
+function getNullConstraintColumn(err: unknown): string | null {
+  const msg =
+    typeof err === "object" && err && "message" in err
+      ? String((err as { message?: unknown }).message ?? "")
+      : "";
+  const m = msg.match(/null value in column "([^"]+)"/i);
+  return m?.[1] ?? null;
+}
+
+function applyDefaultForRequiredColumn(
+  payload: Record<string, unknown>,
+  col: string,
+): boolean {
+  switch (col) {
+    case "asset":
+      payload.asset = payload.asset ?? payload.symbol ?? payload.asset_name ?? "UNKNOWN";
+      return true;
+    case "quantity":
+      payload.quantity = payload.quantity ?? payload.lots ?? 1;
+      return true;
+    case "position_type":
+      payload.position_type = payload.position_type ?? payload.type ?? "buy";
+      return true;
+    case "entry_price":
+      payload.entry_price = payload.entry_price ?? payload.open_price ?? 0;
+      return true;
+    case "price":
+      payload.price = payload.price ?? payload.open_price ?? 0;
+      return true;
+    case "direction":
+      payload.direction = payload.direction ?? payload.type ?? "buy";
+      return true;
+    case "volume":
+      payload.volume = payload.volume ?? payload.quantity ?? payload.lots ?? 1;
+      return true;
+    case "margin":
+      payload.margin = payload.margin ?? payload.amount ?? 0;
+      return true;
+    case "profit_loss":
+      payload.profit_loss = payload.profit_loss ?? 0;
+      return true;
+    case "created_at":
+      payload.created_at = payload.created_at ?? payload.opened_at ?? new Date().toISOString();
+      return true;
+    case "updated_at":
+      payload.updated_at = new Date().toISOString();
+      return true;
+    default:
+      return false;
+  }
 }
 
 type AccountRow = { id: string; balance: number };
@@ -234,11 +289,13 @@ export async function POST(req: NextRequest) {
     const mode: "demo" | "real" = body.mode === "demo" ? "demo" : "real";
     const posData = {
       id: body.id ?? crypto.randomUUID(),
+      asset: body.asset ?? body.symbol ?? body.assetId ?? "",
       symbol: body.symbol ?? "",
       asset_name: body.name ?? body.assetId ?? "",
       mode,
       type: body.type ?? "buy",
       lots: body.lots ?? 1,
+      quantity: body.quantity ?? body.lots ?? 1,
       amount: body.amount ?? 0,
       leverage: body.leverage ?? 200,
       open_price: body.openPrice ?? 0,
@@ -282,38 +339,56 @@ export async function POST(req: NextRequest) {
               user.id,
             );
           } else {
-            const payloadWithMode = {
+            const payloadWithMode: Record<string, unknown> = {
               ...posData,
               user_id: user.id,
               account_id: account.id,
             };
 
-            let upsertResult = await sb
-              .from("positions")
-              .upsert(payloadWithMode, {
+            let upsertResult: {
+              error: { message?: string; code?: string } | null;
+            } = { error: null };
+            let payload = { ...payloadWithMode };
+
+            for (let attempt = 0; attempt < 6; attempt++) {
+              upsertResult = await sb.from("positions").upsert(payload, {
                 onConflict: "id",
                 ignoreDuplicates: false,
               });
 
-            if (
-              upsertResult.error &&
-              hasMissingColumn(upsertResult.error, "mode")
-            ) {
-              console.warn(
-                "[POST /api/positions/open] coluna mode ausente em positions, a usar fallback sem mode.",
-              );
-              const { mode: _ignoredMode, ...payloadWithoutMode } =
-                payloadWithMode;
-              upsertResult = await sb
-                .from("positions")
-                .upsert(payloadWithoutMode, {
-                  onConflict: "id",
-                  ignoreDuplicates: false,
-                });
+              if (!upsertResult.error) break;
+
+              if (hasMissingColumn(upsertResult.error, "mode") && "mode" in payload) {
+                console.warn(
+                  "[POST /api/positions/open] coluna mode ausente em positions, nova tentativa sem mode.",
+                );
+                const { mode: _dropMode, ...rest } = payload;
+                payload = rest;
+                continue;
+              }
+
+              if (hasMissingColumn(upsertResult.error, "asset") && "asset" in payload) {
+                console.warn(
+                  "[POST /api/positions/open] coluna asset ausente em positions, nova tentativa sem asset.",
+                );
+                const { asset: _dropAsset, ...rest } = payload;
+                payload = rest;
+                continue;
+              }
+
+              const nullCol = getNullConstraintColumn(upsertResult.error);
+              if (nullCol && applyDefaultForRequiredColumn(payload, nullCol)) {
+                console.warn(
+                  `[POST /api/positions/open] coluna obrigatória '${nullCol}' estava nula, nova tentativa com valor default.`,
+                );
+                continue;
+              }
+
+              break;
             }
 
             if (upsertResult.error) {
-              dbError = upsertResult.error.message;
+              dbError = upsertResult.error.message ?? "unknown upsert error";
               console.error(
                 "[POST /api/positions/open] upsert error:",
                 upsertResult.error.message,
