@@ -18,6 +18,7 @@ import { tradeStore } from "@/lib/trade-store";
 import { notificationStore } from "@/lib/notification-store";
 import { priceStore } from "@/lib/price-store";
 import { accountStore, DEMO_START_BALANCE } from "@/lib/account-store";
+import { useAlphaVantagePrices } from "@/hooks/use-alpha-vantage-prices";
 
 // ─── Util: verificar se é fim de semana ──────────────────────────────────────
 function isWeekend(): boolean {
@@ -166,6 +167,27 @@ function getContractSize(asset: Asset): number {
   if (asset.symbol === "XAGUSD") return 1_000;
   if (asset.category.includes("commodities")) return 1_000;
   return 1; // cripto, ações, ETFs, índices
+}
+
+function getEffectiveSpread(asset: Asset): number {
+  const minVisibleSpread = 1 / Math.pow(10, asset.digits);
+  return Math.max(asset.spread, minVisibleSpread);
+}
+
+function getBidAsk(asset: Asset, tickPrice: number, effectiveSpread: number) {
+  // Para ouro com override ativo, usar o preço definido pelo admin como centro
+  // e forçar uma diferença visível entre bid/ask.
+  if (asset.id === "xauusd" && priceStore.getAdminOverride("xauusd") !== null) {
+    const forcedSpread = Math.max(effectiveSpread, tickPrice * 0.0025); // ~0.25%
+    const half = forcedSpread / 2;
+    const bid = tickPrice - half;
+    const ask = tickPrice + half;
+    return { bid, ask };
+  }
+
+  const bid = tickPrice;
+  const ask = tickPrice + effectiveSpread;
+  return { bid, ask };
 }
 
 // ─── Assets ───────────────────────────────────────────────────────────────────
@@ -1446,6 +1468,641 @@ function ChartModal({
   );
 }
 
+function TradePanel({
+  asset,
+  price,
+  isLive,
+  onClose,
+  onOpenChart,
+  initialTradeType,
+}: {
+  asset: Asset;
+  price: number;
+  isLive: boolean;
+  onClose: () => void;
+  onOpenChart: () => void;
+  initialTradeType?: "buy" | "sell";
+}) {
+  const [tab, setTab] = useState<"amount" | "lots">("amount");
+  const [tradeType, setTradeType] = useState<"buy" | "sell">(
+    initialTradeType ?? "buy",
+  );
+  const [amount, setAmount] = useState("100");
+  const [lots, setLots] = useState("0.01");
+  const selectedLeverage = asset.leverage;
+  const [stopLoss, setStopLoss] = useState(false);
+  const [stopLossVal, setStopLossVal] = useState("");
+  const [takeProfit, setTakeProfit] = useState(false);
+  const [takeProfitVal, setTakeProfitVal] = useState("");
+  const [pendingOrder, setPendingOrder] = useState(false);
+  const [pendingPrice, setPendingPrice] = useState("");
+  const [isFav, setIsFav] = useState(false);
+  const effectiveSpread = getEffectiveSpread(asset);
+
+  // Preço com micro-fluctuação para display (apenas quando mercado aberto)
+  const tickPrice = useTickPrice(price, effectiveSpread, isLive);
+  const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
+  const displayPrice = tradeType === "buy" ? ask : bid;
+
+  const amountNum = parseFloat(amount) || 100;
+  const lotsNum = parseFloat(lots) || 0.01;
+  const contractSize = getContractSize(asset);
+  // Para o separador "lotes": margem = lots × contractSize × preço / alavancagem
+  const calcLots =
+    tab === "amount"
+      ? (amountNum * selectedLeverage) / (contractSize * displayPrice)
+      : lotsNum;
+  const calcAmount =
+    tab === "lots"
+      ? (lotsNum * contractSize * displayPrice) / selectedLeverage
+      : amountNum;
+  const leveraged = calcAmount * selectedLeverage;
+  const sim1Pct = leveraged * 0.01;
+  const simTP = (() => {
+    if (!takeProfit || !takeProfitVal) return null;
+    const tp = parseFloat(takeProfitVal);
+    if (isNaN(tp) || tp <= 0) return null;
+    const dir = tradeType === "buy" ? 1 : -1;
+    const amt = (leveraged * dir * (tp - displayPrice)) / displayPrice;
+    return { amount: amt, pct: calcAmount > 0 ? (amt / calcAmount) * 100 : 0 };
+  })();
+  const simSL = (() => {
+    if (!stopLoss || !stopLossVal) return null;
+    const sl = parseFloat(stopLossVal);
+    if (isNaN(sl) || sl <= 0) return null;
+    const dir = tradeType === "buy" ? 1 : -1;
+    const amt = (leveraged * dir * (sl - displayPrice)) / displayPrice;
+    return { amount: amt, pct: calcAmount > 0 ? (amt / calcAmount) * 100 : 0 };
+  })();
+  const spreadCost = leveraged * (effectiveSpread / displayPrice);
+
+  const [toast, setToast] = useState<string | null>(null);
+  const router = useRouter();
+
+  function executeTrade() {
+    // ── Bloqueio fim de semana ────────────────────────────────────────────────
+    if (isWeekend()) {
+      setToast("❌ Mercados fechados ao fim de semana");
+      notificationStore.add(
+        "info",
+        "Mercados fechados",
+        "Os mercados estão encerrados ao sábado e domingo.",
+      );
+      setTimeout(() => setToast(null), 2500);
+      return;
+    }
+    // ── Bloqueio sem cotação disponível (painel) ──────────────────────────────
+    if (asset.marketSymbol && !isLive) {
+      setToast("❌ Mercado não está aberto para este ativo");
+      notificationStore.add(
+        "info",
+        "Mercado não disponível",
+        `${asset.symbol} — sem cotação disponível de momento. Tente novamente em alguns instantes.`,
+      );
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
+    const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
+    const execPrice = tradeType === "buy" ? ask : bid;
+    const cs = getContractSize(asset);
+    const lotsN =
+      tab === "amount"
+        ? ((parseFloat(amount) || 100) * selectedLeverage) / (cs * execPrice)
+        : parseFloat(lots) || 0.01;
+    const amountN =
+      tab === "lots"
+        ? ((parseFloat(lots) || 0.01) * cs * execPrice) / selectedLeverage
+        : parseFloat(amount) || 100;
+    // ── Verificação de saldo ──────────────────────────────────────────────────
+    const bal = getCurrentBalance();
+    if (amountN > bal) {
+      setToast(`❌ Saldo insuficiente (${bal.toFixed(2)})`);
+      notificationStore.add(
+        "info",
+        "Saldo insuficiente",
+        `Precisa de ${amountN.toFixed(2)} mas tem ${bal.toFixed(2)} disponíveis.`,
+      );
+      setTimeout(() => setToast(null), 2500);
+      return;
+    }
+    const slVal = stopLoss && stopLossVal ? parseFloat(stopLossVal) : null;
+    const tpVal =
+      takeProfit && takeProfitVal ? parseFloat(takeProfitVal) : null;
+    if (pendingOrder && pendingPrice) {
+      tradeStore.addPending({
+        assetId: asset.id,
+        symbol: asset.symbol,
+        name: asset.name,
+        icon: asset.icon,
+        digits: asset.digits,
+        tvSymbol: asset.tvSymbol,
+        type: tradeType,
+        lots: lotsN,
+        amount: amountN,
+        leverage: selectedLeverage,
+        targetPrice: parseFloat(pendingPrice),
+        spread: effectiveSpread,
+        stopLoss: slVal,
+        takeProfit: tpVal,
+      });
+      notificationStore.add(
+        "info",
+        "Pedido pendente criado",
+        `${asset.symbol} ${tradeType === "buy" ? "Comprar" : "Vender"} a ${parseFloat(pendingPrice).toFixed(asset.digits)}`,
+      );
+      setToast("Pedido pendente criado!");
+    } else {
+      tradeStore.addOpen({
+        assetId: asset.id,
+        symbol: asset.symbol,
+        name: asset.name,
+        icon: asset.icon,
+        digits: asset.digits,
+        tvSymbol: asset.tvSymbol,
+        type: tradeType,
+        lots: lotsN,
+        amount: amountN,
+        leverage: selectedLeverage,
+        openPrice: execPrice,
+        spread: effectiveSpread,
+        stopLoss: slVal,
+        takeProfit: tpVal,
+      });
+      notificationStore.add(
+        "trade_open",
+        tradeType === "buy"
+          ? `Compra aberta — ${asset.symbol}`
+          : `Venda aberta — ${asset.symbol}`,
+        `${amountN.toFixed(2)} @ ${execPrice.toFixed(asset.digits)} | Alavancagem 1:${selectedLeverage}`,
+      );
+      setToast(
+        tradeType === "buy"
+          ? `Comprado ${asset.symbol}!`
+          : `Vendido ${asset.symbol}!`,
+      );
+    }
+    setTimeout(() => {
+      setToast(null);
+      onClose();
+      router.push("/trade/dashboard/portfolio");
+    }, 1400);
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-card border-l border-border">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <AssetIcon asset={asset} size="md" />
+          <div>
+            <p className="font-bold text-foreground text-sm">{asset.symbol}</p>
+            <p className="text-xs text-muted-foreground truncate max-w-[140px]">
+              {asset.name}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => setIsFav((f) => !f)}>
+            <Star
+              className={cn(
+                "w-4 h-4 transition-colors",
+                isFav
+                  ? "fill-yellow-400 text-yellow-400"
+                  : "text-muted-foreground hover:text-yellow-400",
+              )}
+            />
+          </button>
+          <button
+            onClick={onOpenChart}
+            title="Ampliar grafico"
+            className="p-1 rounded hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Chart clickable area */}
+      <div
+        className="relative h-52 bg-background/60 border-b border-border overflow-hidden flex-shrink-0 group cursor-pointer"
+        onClick={onOpenChart}
+      >
+        <TradingViewChart
+          tvSymbol={asset.tvSymbol}
+          interval="D"
+          height="100%"
+        />
+        <div className="absolute inset-0 bg-transparent group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 rounded-full p-2">
+            <Maximize2 className="w-5 h-5 text-white" />
+          </div>
+        </div>
+      </div>
+
+      {/* Bid / Ask buttons */}
+      <div className="grid grid-cols-2 border-b border-border flex-shrink-0">
+        <button
+          onClick={() => setTradeType("sell")}
+          className={cn(
+            "py-3 text-center transition-colors border-r border-border",
+            tradeType === "sell" ? "bg-red-500" : "hover:bg-red-500/10",
+          )}
+        >
+          <p
+            className={cn(
+              "text-[10px] uppercase tracking-wide",
+              tradeType === "sell" ? "text-white/80" : "text-muted-foreground",
+            )}
+          >
+            Vender
+          </p>
+          <p
+            className={cn(
+              "text-lg font-bold tabular-nums",
+              tradeType === "sell" ? "text-white" : "text-red-500",
+            )}
+          >
+            {bid.toFixed(asset.digits)}
+          </p>
+        </button>
+        <button
+          onClick={() => setTradeType("buy")}
+          className={cn(
+            "py-3 text-center transition-colors",
+            tradeType === "buy" ? "bg-green-600" : "hover:bg-green-600/10",
+          )}
+        >
+          <p
+            className={cn(
+              "text-[10px] uppercase tracking-wide",
+              tradeType === "buy" ? "text-white/80" : "text-muted-foreground",
+            )}
+          >
+            Comprar
+          </p>
+          <p
+            className={cn(
+              "text-lg font-bold tabular-nums",
+              tradeType === "buy" ? "text-white" : "text-green-500",
+            )}
+          >
+            {ask.toFixed(asset.digits)}
+          </p>
+        </button>
+      </div>
+
+      {/* Controls */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Amount / Lots tab */}
+        <div className="flex rounded-lg bg-muted/50 p-0.5">
+          {(["amount", "lots"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={cn(
+                "flex-1 py-1.5 rounded-md text-sm font-medium transition-colors",
+                tab === t
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t === "amount" ? "Montante" : "Lotes"}
+            </button>
+          ))}
+        </div>
+
+        {/* Input */}
+        <div className="flex items-center gap-2 border border-border rounded-xl px-3 py-2.5 bg-background/60">
+          <span className="text-muted-foreground text-sm">$</span>
+          <input
+            type="number"
+            min="0"
+            value={tab === "amount" ? amount : lots}
+            onChange={(e) =>
+              tab === "amount"
+                ? setAmount(e.target.value)
+                : setLots(e.target.value)
+            }
+            className="flex-1 bg-transparent text-foreground text-base font-semibold outline-none"
+          />
+          <div className="flex flex-col">
+            <button
+              onClick={() =>
+                tab === "amount"
+                  ? setAmount((v) => String((parseFloat(v) || 0) + 10))
+                  : setLots((v) =>
+                      String(
+                        Math.round(((parseFloat(v) || 0) + 0.01) * 100) / 100,
+                      ),
+                    )
+              }
+              className="w-5 h-5 flex items-center justify-center text-muted-foreground hover:text-foreground"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() =>
+                tab === "amount"
+                  ? setAmount((v) =>
+                      String(Math.max(1, (parseFloat(v) || 0) - 10)),
+                    )
+                  : setLots((v) =>
+                      String(
+                        Math.max(
+                          0.01,
+                          Math.round(((parseFloat(v) || 0) - 0.01) * 100) / 100,
+                        ),
+                      ),
+                    )
+              }
+              className="w-5 h-5 flex items-center justify-center text-muted-foreground hover:text-foreground"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-muted/30 rounded-lg p-2">
+            <p className="text-[10px] text-muted-foreground">Lotes</p>
+            <p className="text-sm font-semibold text-foreground">
+              {calcLots.toFixed(4)}
+            </p>
+          </div>
+          <div className="bg-muted/30 rounded-lg p-2">
+            <p className="text-[10px] text-muted-foreground">Alavancagem</p>
+            <p className="text-sm font-semibold text-foreground">
+              1:{selectedLeverage}
+            </p>
+          </div>
+          <div className="bg-muted/30 rounded-lg p-2">
+            <p className="text-[10px] text-muted-foreground">Alavancado</p>
+            <p className="text-sm font-semibold text-foreground">
+              ${leveraged.toFixed(2)}
+            </p>
+          </div>
+        </div>
+
+        {/* Simulation box — dynamic TP/SL */}
+        <div className="bg-accent/5 border border-accent/20 rounded-xl p-3 space-y-1.5">
+          <div className="flex items-center justify-between mb-0.5">
+            <p className="text-[11px] text-muted-foreground font-semibold">
+              {simTP || simSL ? "Simulação de alvo" : "Simulação 1%"}
+            </p>
+            <span className="text-[10px] text-muted-foreground">
+              Spread: {effectiveSpread.toFixed(asset.digits)}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-muted-foreground">
+              Ganho {simTP ? "(TP)" : "(+1%)"}
+            </span>
+            <span className="text-sm font-bold text-green-600">
+              +${(simTP ? simTP.amount : sim1Pct).toFixed(2)}
+              {simTP && (
+                <span className="text-[10px] font-normal ml-1">
+                  ({simTP.pct.toFixed(2)}%)
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-muted-foreground">
+              Perda {simSL ? "(SL)" : "(-1%)"}
+            </span>
+            <span className="text-sm font-bold text-red-500">
+              -${Math.abs(simSL ? simSL.amount : sim1Pct).toFixed(2)}
+              {simSL && (
+                <span className="text-[10px] font-normal ml-1">
+                  ({Math.abs(simSL.pct).toFixed(2)}%)
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="border-t border-border/30 pt-1 flex justify-between items-center">
+            <span className="text-[10px] text-muted-foreground">
+              Custo spread: ${spreadCost.toFixed(2)}
+            </span>
+            {simTP && simSL && Math.abs(simSL.amount) > 0.001 && (
+              <span className="text-[10px] font-bold text-accent">
+                R/R 1:
+                {(Math.abs(simTP.amount) / Math.abs(simSL.amount)).toFixed(2)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* LIMITES */}
+        <div className="space-y-2">
+          <p className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider">
+            Limites
+          </p>
+          {/* Stop Loss */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="tp-sl"
+                checked={stopLoss}
+                onChange={(e) => setStopLoss(e.target.checked)}
+                className="w-3.5 h-3.5 accent-red-500"
+              />
+              <label
+                htmlFor="tp-sl"
+                className="flex-1 text-sm font-medium text-foreground cursor-pointer"
+              >
+                Parar a perda
+              </label>
+              {stopLoss && (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => {
+                      const v = parseFloat(
+                        stopLossVal || bid.toFixed(asset.digits),
+                      );
+                      setStopLossVal(
+                        (v - effectiveSpread * 10).toFixed(asset.digits),
+                      );
+                    }}
+                    className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
+                  >
+                    <Minus className="w-2.5 h-2.5" />
+                  </button>
+                  <input
+                    type="number"
+                    value={stopLossVal}
+                    placeholder={bid.toFixed(asset.digits)}
+                    onChange={(e) => setStopLossVal(e.target.value)}
+                    className="w-24 bg-background border border-border rounded-md px-2 py-1 text-xs outline-none focus:border-red-400 text-right"
+                  />
+                  <button
+                    onClick={() => {
+                      const v = parseFloat(
+                        stopLossVal || bid.toFixed(asset.digits),
+                      );
+                      setStopLossVal(
+                        (v + effectiveSpread * 10).toFixed(asset.digits),
+                      );
+                    }}
+                    className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
+                  >
+                    <Plus className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+            {stopLoss && simSL && (
+              <p className="text-[10px] pl-5 text-red-500">
+                Perda: <strong>${Math.abs(simSL.amount).toFixed(2)}</strong>{" "}
+                <span className="text-muted-foreground">
+                  ({Math.abs(simSL.pct).toFixed(2)}%)
+                </span>
+              </p>
+            )}
+          </div>
+          {/* Take Profit */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="tp-tp"
+                checked={takeProfit}
+                onChange={(e) => setTakeProfit(e.target.checked)}
+                className="w-3.5 h-3.5 accent-green-500"
+              />
+              <label
+                htmlFor="tp-tp"
+                className="flex-1 text-sm font-medium text-foreground cursor-pointer"
+              >
+                Tirar Lucro
+              </label>
+              {takeProfit && (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => {
+                      const v = parseFloat(
+                        takeProfitVal || ask.toFixed(asset.digits),
+                      );
+                      setTakeProfitVal(
+                        (v - effectiveSpread * 10).toFixed(asset.digits),
+                      );
+                    }}
+                    className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
+                  >
+                    <Minus className="w-2.5 h-2.5" />
+                  </button>
+                  <input
+                    type="number"
+                    value={takeProfitVal}
+                    placeholder={ask.toFixed(asset.digits)}
+                    onChange={(e) => setTakeProfitVal(e.target.value)}
+                    className="w-24 bg-background border border-border rounded-md px-2 py-1 text-xs outline-none focus:border-green-400 text-right"
+                  />
+                  <button
+                    onClick={() => {
+                      const v = parseFloat(
+                        takeProfitVal || ask.toFixed(asset.digits),
+                      );
+                      setTakeProfitVal(
+                        (v + effectiveSpread * 10).toFixed(asset.digits),
+                      );
+                    }}
+                    className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
+                  >
+                    <Plus className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+            {takeProfit && simTP && (
+              <p className="text-[10px] pl-5 text-green-600">
+                Ganho: <strong>${simTP.amount.toFixed(2)}</strong>{" "}
+                <span className="text-muted-foreground">
+                  ({simTP.pct.toFixed(2)}%)
+                </span>
+              </p>
+            )}
+          </div>
+          {simTP && simSL && Math.abs(simSL.amount) > 0.001 && (
+            <p className="text-[10px] text-muted-foreground border-t border-border/30 pt-1">
+              Risco/Retorno: 1:
+              {(Math.abs(simTP.amount) / Math.abs(simSL.amount)).toFixed(2)}
+            </p>
+          )}
+        </div>
+
+        {/* Pending Order */}
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={pendingOrder}
+              onChange={(e) => setPendingOrder(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm text-foreground">Pedido Pendente</span>
+          </label>
+          {pendingOrder && (
+            <div className="flex items-center gap-2 border border-border rounded-xl px-3 py-2 bg-background/60">
+              <span className="text-xs text-muted-foreground flex-shrink-0">
+                Quando preco atingir:
+              </span>
+              <input
+                type="number"
+                placeholder={displayPrice.toFixed(asset.digits)}
+                value={pendingPrice}
+                onChange={(e) => setPendingPrice(e.target.value)}
+                className="flex-1 bg-transparent text-foreground text-sm font-semibold outline-none text-right"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Invest button — painel lateral */}
+      <div className="p-4 border-t border-border flex-shrink-0">
+        {toast ? (
+          <div
+            className={cn(
+              "w-full py-4 rounded-xl text-sm font-semibold flex items-center justify-center gap-2",
+              toast.startsWith("❌")
+                ? "bg-red-500/10 border border-red-500/30 text-red-400"
+                : "bg-green-500/20 border border-green-500/40 text-green-400",
+            )}
+          >
+            {toast.startsWith("❌") ? (
+              <AlertTriangle className="w-4 h-4" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4" />
+            )}{" "}
+            {toast}
+          </div>
+        ) : (
+          <button
+            onClick={executeTrade}
+            className={cn(
+              "w-full py-4 rounded-xl font-bold text-lg transition-all active:scale-95",
+              tradeType === "buy"
+                ? "bg-green-600 text-white hover:bg-green-700"
+                : "bg-red-500 text-white hover:bg-red-600",
+            )}
+          >
+            {tradeType === "buy" ? "Comprar" : "Vender"} {asset.symbol}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 function AssetsPageInner() {
   const searchParams = useSearchParams();
@@ -1461,7 +2118,7 @@ function AssetsPageInner() {
     "open",
   );
 
-  const { prices } = useFinnhubPrices(ASSETS);
+  const { prices, liveAssets } = useAlphaVantagePrices(ASSETS);
 
   // ── Micro-tick para a tabela (±25% do spread, 700-1100ms) ────────────────
   const [tickPrices, setTickPrices] = useState<Record<string, number>>(() =>
