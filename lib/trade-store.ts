@@ -143,21 +143,71 @@ export const tradeStore = {
     list.unshift(full);
     write(keys().open, list);
 
-    // Persistir no Supabase em background (fire-and-forget)
+    // ✅ CORREÇÃO: Persistir no Supabase com retry para garantir sincronização
     if (typeof window !== "undefined") {
       const mode = localStorage.getItem(MODE_KEY) ?? "real";
       import("@/lib/supabase").then(({ supabase }) => {
         supabase.auth.getSession().then(({ data: { session } }) => {
-          if (!session?.access_token) return;
-          fetch("/api/positions/open", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            credentials: "include",
-            body: JSON.stringify({ ...full, mode }),
-          }).catch(() => {});
+          if (!session?.access_token) {
+            console.warn(
+              "[tradeStore] ⚠️ Sem sessão ativa. Posição salva apenas em localStorage:",
+              full.id,
+            );
+            return;
+          }
+
+          // Função de persistência com retry e backoff exponencial
+          const persistWithRetry = async (attempt = 1, maxAttempts = 3) => {
+            try {
+              const response = await fetch("/api/positions/open", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${session.access_token}`,
+                },
+                credentials: "include",
+                body: JSON.stringify({ ...full, mode }),
+              });
+
+              if (!response.ok) {
+                throw new Error(
+                  `HTTP ${response.status}: ${response.statusText}`,
+                );
+              }
+
+              console.log(
+                "[tradeStore] ✅ Posição persistida no Supabase:",
+                full.id,
+              );
+            } catch (error) {
+              console.error(
+                `[tradeStore] ⚠️ Tentativa ${attempt}/${maxAttempts} falhou:`,
+                error,
+              );
+
+              if (attempt < maxAttempts) {
+                // Retry com backoff exponencial: 2s, 4s, 8s
+                const delay = Math.pow(2, attempt) * 1000;
+                console.log(
+                  `[tradeStore] 🔄 Tentando novamente em ${delay}ms...`,
+                );
+                setTimeout(
+                  () => persistWithRetry(attempt + 1, maxAttempts),
+                  delay,
+                );
+              } else {
+                console.error(
+                  "[tradeStore] ❌ FALHA CRÍTICA: Posição NÃO foi persistida no servidor:",
+                  full.id,
+                );
+                console.error(
+                  "[tradeStore] ℹ️ A posição permanece em localStorage e será sincronizada no próximo login.",
+                );
+              }
+            }
+          };
+
+          persistWithRetry();
         });
       });
     }

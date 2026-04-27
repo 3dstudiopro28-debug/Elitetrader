@@ -767,8 +767,41 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
   }, [stats?.mode]);
 
   const handleLogout = useCallback(async () => {
-    // Limpar todos os dados locais
-    if (typeof window !== "undefined") localStorage.clear();
+    // ✅ CORREÇÃO: Preservar posições no localStorage durante o logout
+    if (typeof window !== "undefined") {
+      // Identificar chaves que contêm dados de posições
+      const keysToPreserve: string[] = [];
+      Object.keys(localStorage).forEach((key) => {
+        if (
+          key.startsWith("et_open_positions_") ||
+          key.startsWith("et_closed_positions_") ||
+          key.startsWith("et_pending_orders_")
+        ) {
+          keysToPreserve.push(key);
+        }
+      });
+
+      // Fazer backup das posições
+      const backup: Record<string, string | null> = {};
+      keysToPreserve.forEach((key) => {
+        backup[key] = localStorage.getItem(key);
+      });
+
+      // Limpar todos os dados locais
+      localStorage.clear();
+
+      // Restaurar posições preservadas
+      Object.entries(backup).forEach(([key, value]) => {
+        if (value) localStorage.setItem(key, value);
+      });
+
+      console.log(
+        "✅ [LOGOUT] Posições preservadas:",
+        keysToPreserve.length,
+        "chaves",
+      );
+    }
+
     // Terminar sessão Supabase
     try {
       await supabase.auth.signOut();

@@ -124,40 +124,48 @@ export default function DashboardLayout({
     if (!ready) return;
 
     // ── Sync cross-device: buscar posições abertas do servidor ──────────────
+    // ✅ CORREÇÃO: Forçar busca fresca sem cache para garantir dados atualizados
     async function syncOpenPositionsFromDB() {
       console.log(
-        "PASSO 1: [FRONTEND] A função syncOpenPositionsFromDB foi chamada.",
+        "🔄 [SYNC] PASSO 1: Iniciando sincronização de posições abertas...",
       );
       try {
         const authHeaders = await getAuthToken();
         const response = await fetch("/api/positions?status=open", {
           credentials: "include",
           cache: "no-store",
-          headers: authHeaders,
+          headers: {
+            ...authHeaders,
+            "Cache-Control": "no-cache", // Força busca fresca do servidor
+          },
         });
 
         console.log(
-          `PASSO 2: [FRONTEND] A API respondeu com o status: ${response.status}`,
+          `✅ [SYNC] PASSO 2: API respondeu com status ${response.status}`,
         );
 
         if (!response.ok) {
-          console.error("Falha na resposta da API.");
+          console.error(`❌ [SYNC] Falha na API: HTTP ${response.status}`);
           return;
         }
 
         const json = await response.json();
-        console.log(
-          "PASSO 3: [FRONTEND] A API retornou o seguinte JSON:",
-          json,
-        );
+        console.log("📊 [SYNC] PASSO 3: Dados recebidos da API:", {
+          count: json.data?.length ?? 0,
+          hasData: json.data && Array.isArray(json.data),
+          positions: json.data,
+        });
 
         if (json.data && Array.isArray(json.data)) {
           tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
+          console.log(
+            `✅ [SYNC] PASSO 4: ${json.data.length} posições carregadas com sucesso`,
+          );
         } else {
-          console.warn("O JSON da API não contém um array em `data`.");
+          console.warn("⚠️ [SYNC] API não retornou array válido em 'data'");
         }
       } catch (e) {
-        console.error("Erro catastrófico ao tentar sincronizar:", e);
+        console.error("❌ [SYNC] Erro crítico ao sincronizar posições:", e);
       }
     }
 
