@@ -95,58 +95,48 @@ BEGIN
 END $$;
 
 
--- 2.2 Criar/Atualizar política RLS para INSERT
--- Permite que usuários autenticados insiram suas próprias posições
-DROP POLICY IF EXISTS "positions_insert_own" ON positions;
+-- 2.2 Criar/Atualizar políticas RLS
+-- Permite que usuários autenticados gerenciem suas próprias posições
+DO $$ 
+BEGIN
+  -- DROP políticas existentes
+  DROP POLICY IF EXISTS "positions_insert_own" ON positions;
+  DROP POLICY IF EXISTS "positions_select_own" ON positions;
+  DROP POLICY IF EXISTS "positions_update_own" ON positions;
+  DROP POLICY IF EXISTS "positions_delete_own" ON positions;
 
-CREATE POLICY "positions_insert_own" ON positions
-  FOR INSERT 
-  WITH CHECK (auth.uid() = user_id);
+  -- Criar política INSERT
+  CREATE POLICY "positions_insert_own" ON positions
+    FOR INSERT 
+    WITH CHECK (auth.uid() = user_id);
+  RAISE NOTICE '✅ Política INSERT criada: positions_insert_own';
 
-RAISE NOTICE '✅ Política INSERT criada: positions_insert_own';
+  -- Criar política SELECT
+  CREATE POLICY "positions_select_own" ON positions
+    FOR SELECT 
+    USING (auth.uid() = user_id);
+  RAISE NOTICE '✅ Política SELECT criada: positions_select_own';
 
+  -- Criar política UPDATE
+  CREATE POLICY "positions_update_own" ON positions
+    FOR UPDATE 
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+  RAISE NOTICE '✅ Política UPDATE criada: positions_update_own';
 
--- 2.3 Criar/Atualizar política RLS para SELECT
--- Permite que usuários vejam apenas suas próprias posições
-DROP POLICY IF EXISTS "positions_select_own" ON positions;
+  -- Criar política DELETE
+  CREATE POLICY "positions_delete_own" ON positions
+    FOR DELETE 
+    USING (auth.uid() = user_id);
+  RAISE NOTICE '✅ Política DELETE criada: positions_delete_own';
 
-CREATE POLICY "positions_select_own" ON positions
-  FOR SELECT 
-  USING (auth.uid() = user_id);
-
-RAISE NOTICE '✅ Política SELECT criada: positions_select_own';
-
-
--- 2.4 Criar/Atualizar política RLS para UPDATE
--- Permite que usuários atualizem apenas suas próprias posições
-DROP POLICY IF EXISTS "positions_update_own" ON positions;
-
-CREATE POLICY "positions_update_own" ON positions
-  FOR UPDATE 
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-RAISE NOTICE '✅ Política UPDATE criada: positions_update_own';
-
-
--- 2.5 Criar/Atualizar política RLS para DELETE
--- Permite que usuários deletem apenas suas próprias posições
-DROP POLICY IF EXISTS "positions_delete_own" ON positions;
-
-CREATE POLICY "positions_delete_own" ON positions
-  FOR DELETE 
-  USING (auth.uid() = user_id);
-
-RAISE NOTICE '✅ Política DELETE criada: positions_delete_own';
+  -- Garantir que RLS está ATIVO
+  ALTER TABLE positions ENABLE ROW LEVEL SECURITY;
+  RAISE NOTICE '✅ RLS ativo na tabela positions';
+END $$;
 
 
--- 2.6 Garantir que RLS está ATIVO (se não estiver)
-ALTER TABLE positions ENABLE ROW LEVEL SECURITY;
-
-RAISE NOTICE '✅ RLS ativo na tabela positions';
-
-
--- 2.7 Adicionar índice para performance (se não existir)
+-- 2.3 Adicionar índice para performance (se não existir)
 DO $$
 BEGIN
   IF NOT EXISTS (
