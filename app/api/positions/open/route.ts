@@ -186,13 +186,39 @@ export async function GET(req: NextRequest) {
     } = await sb.auth.getUser(token);
     if (authErr || !user) return NextResponse.json({ success: true, data: [] });
 
-    // Consulta directa por user_id — não depende da coluna mode em accounts
-    const { data: positions } = await sb
+    const modeParam = req.nextUrl.searchParams.get("mode");
+    const mode: "demo" | "real" | null =
+      modeParam === "demo" || modeParam === "real" ? modeParam : null;
+
+    let query = sb
       .from("positions")
       .select("*")
       .eq("user_id", user.id)
       .eq("status", "open")
       .order("opened_at", { ascending: false });
+
+    if (mode) {
+      query = query.eq("mode", mode);
+    }
+
+    let { data: positions, error } = await query;
+
+    if (error && mode && hasMissingColumn(error, "mode")) {
+      const fallback = await sb
+        .from("positions")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("status", "open")
+        .order("opened_at", { ascending: false });
+
+      positions = fallback.data;
+      error = fallback.error;
+    }
+
+    if (error) {
+      console.error("[GET /api/positions/open] error:", error.message);
+      return NextResponse.json({ success: true, data: [] });
+    }
 
     return NextResponse.json({ success: true, data: positions ?? [] });
   } catch {
