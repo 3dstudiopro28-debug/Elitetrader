@@ -130,15 +130,19 @@ export default function DashboardLayout({
         "🔄 [SYNC] PASSO 1: Iniciando sincronização de posições abertas...",
       );
       try {
+        const currentMode = localStorage.getItem("et_account_mode") ?? "real";
         const authHeaders = await getAuthToken();
-        const response = await fetch("/api/positions?status=open", {
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            ...authHeaders,
-            "Cache-Control": "no-cache", // Força busca fresca do servidor
+        const response = await fetch(
+          `/api/positions?status=open&mode=${encodeURIComponent(currentMode)}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+            headers: {
+              ...authHeaders,
+              "Cache-Control": "no-cache", // Força busca fresca do servidor
+            },
           },
-        });
+        );
 
         console.log(
           `✅ [SYNC] PASSO 2: API respondeu com status ${response.status}`,
@@ -172,12 +176,16 @@ export default function DashboardLayout({
     // ── Sync cross-device: buscar histórico de posições fechadas ─────────────
     async function syncClosedPositionsFromDB() {
       try {
+        const currentMode = localStorage.getItem("et_account_mode") ?? "real";
         const authHeaders = await getAuthToken();
-        const response = await fetch("/api/positions?status=closed", {
-          credentials: "include",
-          cache: "no-store",
-          headers: authHeaders,
-        });
+        const response = await fetch(
+          `/api/positions?status=closed&mode=${encodeURIComponent(currentMode)}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+            headers: authHeaders,
+          },
+        );
         if (!response.ok) return;
         const json = await response.json();
         if (json.data && Array.isArray(json.data)) {
@@ -295,15 +303,19 @@ export default function DashboardLayout({
 
     async function pollOpenPositions() {
       try {
+        const currentMode = localStorage.getItem("et_account_mode") ?? "real";
         console.log(
-          "[dashboard] A chamar a API correta: /api/positions?status=open",
+          `[dashboard] A chamar a API correta: /api/positions?status=open&mode=${currentMode}`,
         );
         const authHeaders = await getAuthToken();
-        const response = await fetch("/api/positions?status=open", {
-          credentials: "include",
-          cache: "no-store",
-          headers: authHeaders,
-        });
+        const response = await fetch(
+          `/api/positions?status=open&mode=${encodeURIComponent(currentMode)}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+            headers: authHeaders,
+          },
+        );
 
         if (!response.ok) {
           console.warn(

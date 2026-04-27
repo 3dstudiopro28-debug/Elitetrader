@@ -145,6 +145,7 @@ export async function POST(req: NextRequest) {
       id: body.id ?? crypto.randomUUID(),
       symbol: body.symbol ?? "",
       asset_name: body.name ?? body.assetId ?? "",
+      mode: body.mode === "demo" ? "demo" : "real",
       type: body.type ?? "buy",
       lots: body.lots ?? 1,
       amount: body.amount ?? 0,
@@ -192,7 +193,7 @@ export async function POST(req: NextRequest) {
             const { error: upsertErr } = await sb
               .from("positions")
               .upsert(
-                { ...posData, user_id: user.id },
+                { ...posData, user_id: user.id, account_id: account.id },
                 { onConflict: "id", ignoreDuplicates: false },
               );
 

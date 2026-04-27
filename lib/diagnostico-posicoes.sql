@@ -51,35 +51,66 @@ FROM pg_constraint
 WHERE conrelid = 'positions'::regclass
 ORDER BY contype, conname;
 
--- 1.5 Contar posições existentes por status
-SELECT 
-  status,
-  COUNT(*) as total
-FROM positions
-GROUP BY status
-ORDER BY status;
+-- 1.5 Contar posições existentes por status sem falhar se a coluna ainda não existir
+DO $$
+DECLARE
+  row_item record;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'positions'
+      AND column_name = 'status'
+  ) THEN
+    FOR row_item IN EXECUTE
+      'SELECT status, COUNT(*) AS total FROM positions GROUP BY status ORDER BY status'
+    LOOP
+      RAISE NOTICE 'status=% total=%', row_item.status, row_item.total;
+    END LOOP;
+  ELSE
+    RAISE NOTICE '⚠️ Coluna status ausente antes do hardening; contagem por status ignorada.';
+  END IF;
+END $$;
 
--- 1.6 Verificar últimas 5 posições criadas
-SELECT 
-  id,
-  user_id,
-  symbol,
-  type,
-  amount,
-  status,
-  opened_at,
-  created_at
-FROM positions
-ORDER BY opened_at DESC
+-- 1.6 Verificar últimas 5 posições criadas sem assumir colunas específicas
+SELECT to_jsonb(p) AS row_data
+FROM positions AS p
 LIMIT 5;
 
 
 -- ─── PARTE 2: CORREÇÕES ──────────────────────────────────────────────────────
 
--- 2.1 Garantir que account_id seja OPCIONAL (pode ser NULL)
--- Isso permite inserir posições mesmo sem account_id definido
+-- 2.1 Garantir colunas mínimas esperadas pela aplicação
 DO $$ 
 BEGIN
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS account_id uuid;
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS mode text DEFAULT 'real';
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS symbol text;
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS asset_name text DEFAULT '';
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS type text;
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS lots numeric(10,2);
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS amount numeric(18,2);
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS leverage integer DEFAULT 200;
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS open_price numeric(18,6);
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS close_price numeric(18,6);
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS spread numeric(10,4) DEFAULT 0;
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS stop_loss numeric(18,6);
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS take_profit numeric(18,6);
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS status text DEFAULT 'open';
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS pnl numeric(18,2);
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS opened_at timestamptz DEFAULT now();
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS closed_at timestamptz;
+  ALTER TABLE positions ADD COLUMN IF NOT EXISTS close_reason text;
+
+  UPDATE positions
+  SET mode = 'real'
+  WHERE mode IS NULL;
+
+  ALTER TABLE positions DROP CONSTRAINT IF EXISTS positions_mode_check;
+  ALTER TABLE positions
+    ADD CONSTRAINT positions_mode_check
+    CHECK (mode = ANY (ARRAY['demo'::text, 'real'::text]));
+
   IF EXISTS (
     SELECT 1 
     FROM information_schema.columns 

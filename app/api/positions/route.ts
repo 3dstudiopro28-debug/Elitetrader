@@ -50,15 +50,24 @@ export async function GET(req: NextRequest) {
     );
 
     const status = req.nextUrl.searchParams.get("status") ?? "all";
+    const mode = req.nextUrl.searchParams.get("mode");
     console.log(
       `API GET /api/positions: Parâmetro status recebido: "${status}"`,
     );
+    if (mode) {
+      console.log(`API GET /api/positions: Parâmetro mode recebido: "${mode}"`);
+    }
 
     let query = sb
       .from("positions")
       .select("*")
       .eq("user_id", user.id)
       .order("opened_at", { ascending: false });
+
+    if (mode === "demo" || mode === "real") {
+      query = query.eq("mode", mode);
+      console.log(`API GET /api/positions: A aplicar filtro mode = '${mode}'`);
+    }
 
     if (status === "open") {
       query = query.eq("status", "open");
