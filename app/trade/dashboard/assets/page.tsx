@@ -116,7 +116,7 @@ function getCurrentBalance(): number {
   return (dbBal ?? DEMO_START_BALANCE) + realized;
 }
 
-const FINNHUB_TOKEN = "KSA1gzO1nFSBTe4hKfw0KJvJQhhx_E_e";
+const ALPHA_VANTAGE_API_KEY = "70LHTSY4QJV4SYE5";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type AssetCategory =
@@ -143,7 +143,7 @@ interface Asset {
   digits: number;
   icon: string;
   rank?: number;
-  finnhubSymbol?: string;
+  marketSymbol?: string; // Permitir undefined
   tvSymbol: string;
   /** Unidades por lote padrão.
    *  Forex: 100.000 | Ouro: 100 | Prata: 1.000 | Petróleo: 1.000 | Cripto/Ações: 1 */
@@ -168,28 +168,6 @@ function getContractSize(asset: Asset): number {
   return 1; // cripto, ações, ETFs, índices
 }
 
-// Garante spread mínimo visível pelas casas decimais do ativo
-function getEffectiveSpread(asset: Asset): number {
-  const minVisibleSpread = 1 / Math.pow(10, asset.digits);
-  return Math.max(asset.spread, minVisibleSpread);
-}
-
-function getBidAsk(asset: Asset, tickPrice: number, effectiveSpread: number) {
-  // Para ouro com override ativo, usar o preço definido pelo admin como centro
-  // e forçar uma diferença visível entre bid/ask.
-  if (asset.id === "xauusd" && priceStore.getAdminOverride("xauusd") !== null) {
-    const forcedSpread = Math.max(effectiveSpread, tickPrice * 0.0025); // ~0.25%
-    const half = forcedSpread / 2;
-    const bid = tickPrice - half;
-    const ask = tickPrice + half;
-    return { bid, ask };
-  }
-
-  const bid = tickPrice;
-  const ask = tickPrice + effectiveSpread;
-  return { bid, ask };
-}
-
 // ─── Assets ───────────────────────────────────────────────────────────────────
 const ASSETS: Asset[] = [
   {
@@ -203,7 +181,7 @@ const ASSETS: Asset[] = [
     digits: 5,
     icon: "🇪🇺",
     rank: 1,
-    finnhubSymbol: "OANDA:EUR_USD",
+    marketSymbol: "OANDA:EUR_USD",
     tvSymbol: "OANDA:EURUSD",
   },
   {
@@ -217,7 +195,7 @@ const ASSETS: Asset[] = [
     digits: 5,
     icon: "€£",
     rank: 2,
-    finnhubSymbol: "OANDA:EUR_GBP",
+    marketSymbol: "OANDA:EUR_GBP",
     tvSymbol: "OANDA:EURGBP",
   },
   {
@@ -231,50 +209,8 @@ const ASSETS: Asset[] = [
     digits: 3,
     icon: "💴",
     rank: 3,
-    finnhubSymbol: "OANDA:USD_JPY",
+    marketSymbol: "OANDA:USD_JPY",
     tvSymbol: "OANDA:USDJPY",
-  },
-  {
-    id: "usdchf",
-    symbol: "USDCHF",
-    name: "US Dollar vs Swiss Franc",
-    category: ["forex"],
-    basePrice: 0.9012,
-    spread: 0.00015,
-    leverage: 100,
-    digits: 5,
-    icon: "🇨🇭",
-    rank: 4,
-    finnhubSymbol: "OANDA:USD_CHF",
-    tvSymbol: "OANDA:USDCHF",
-  },
-  {
-    id: "gbpusd",
-    symbol: "GBPUSD",
-    name: "British Pound vs US Dollar",
-    category: ["forex", "popular"],
-    basePrice: 1.2932,
-    spread: 0.00014,
-    leverage: 100,
-    digits: 5,
-    icon: "🇬🇧",
-    rank: 5,
-    finnhubSymbol: "OANDA:GBP_USD",
-    tvSymbol: "OANDA:GBPUSD",
-  },
-  {
-    id: "audusd",
-    symbol: "AUDUSD",
-    name: "Australian Dollar vs US Dollar",
-    category: ["forex"],
-    basePrice: 0.6358,
-    spread: 0.00013,
-    leverage: 100,
-    digits: 5,
-    icon: "🇦🇺",
-    rank: 6,
-    finnhubSymbol: "OANDA:AUD_USD",
-    tvSymbol: "OANDA:AUDUSD",
   },
   {
     id: "usdcad",
@@ -286,8 +222,8 @@ const ASSETS: Asset[] = [
     leverage: 100,
     digits: 5,
     icon: "🇨🇦",
-    rank: 7,
-    finnhubSymbol: "OANDA:USD_CAD",
+    rank: 4,
+    marketSymbol: "OANDA:USD_CAD",
     tvSymbol: "OANDA:USDCAD",
   },
   {
@@ -300,8 +236,8 @@ const ASSETS: Asset[] = [
     leverage: 100,
     digits: 5,
     icon: "🇳🇿",
-    rank: 8,
-    finnhubSymbol: "OANDA:NZD_USD",
+    rank: 5,
+    marketSymbol: "OANDA:NZD_USD",
     tvSymbol: "OANDA:NZDUSD",
   },
   {
@@ -314,8 +250,8 @@ const ASSETS: Asset[] = [
     leverage: 100,
     digits: 3,
     icon: "€¥",
-    rank: 9,
-    finnhubSymbol: "OANDA:EUR_JPY",
+    rank: 6,
+    marketSymbol: "OANDA:EUR_JPY",
     tvSymbol: "OANDA:EURJPY",
   },
   {
@@ -323,13 +259,13 @@ const ASSETS: Asset[] = [
     symbol: "XAUUSD",
     name: "Ouro vs Dolar americano",
     category: ["metals", "popular", "mostTraded", "commodities"],
-    basePrice: 4700.0,
-    spread: 10,
+    basePrice: 3310.0,
+    spread: 0.1,
     leverage: 20,
     digits: 2,
     icon: "🥇",
-    rank: 10,
-    finnhubSymbol: "OANDA:XAU_USD",
+    rank: 7,
+    marketSymbol: "OANDA:XAU_USD",
     tvSymbol: "OANDA:XAUUSD",
   },
   {
@@ -342,8 +278,8 @@ const ASSETS: Asset[] = [
     leverage: 20,
     digits: 3,
     icon: "🥈",
-    rank: 11,
-    finnhubSymbol: "OANDA:XAG_USD",
+    rank: 8,
+    marketSymbol: "OANDA:XAG_USD",
     tvSymbol: "OANDA:XAGUSD",
   },
   {
@@ -356,8 +292,8 @@ const ASSETS: Asset[] = [
     leverage: 10,
     digits: 2,
     icon: "⛽",
-    rank: 12,
-    finnhubSymbol: undefined,
+    rank: 9,
+    marketSymbol: undefined,
     tvSymbol: "TVC:UKOIL",
   },
   {
@@ -370,8 +306,8 @@ const ASSETS: Asset[] = [
     leverage: 10,
     digits: 2,
     icon: "🛢",
-    rank: 13,
-    finnhubSymbol: undefined,
+    rank: 10,
+    marketSymbol: undefined,
     tvSymbol: "TVC:USOIL",
   },
   {
@@ -384,8 +320,8 @@ const ASSETS: Asset[] = [
     leverage: 10,
     digits: 3,
     icon: "🔥",
-    rank: 14,
-    finnhubSymbol: undefined,
+    rank: 11,
+    marketSymbol: undefined,
     tvSymbol: "TVC:NGAS",
   },
   {
@@ -398,8 +334,8 @@ const ASSETS: Asset[] = [
     leverage: 10,
     digits: 2,
     icon: "₿",
-    rank: 15,
-    finnhubSymbol: "BINANCE:BTCUSDT",
+    rank: 12,
+    marketSymbol: "BINANCE:BTCUSDT",
     tvSymbol: "BITSTAMP:BTCUSD",
   },
   {
@@ -412,8 +348,8 @@ const ASSETS: Asset[] = [
     leverage: 10,
     digits: 2,
     icon: "Ξ",
-    rank: 16,
-    finnhubSymbol: "BINANCE:ETHUSDT",
+    rank: 13,
+    marketSymbol: "BINANCE:ETHUSDT",
     tvSymbol: "BITSTAMP:ETHUSD",
   },
   {
@@ -426,8 +362,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "◎",
-    rank: 17,
-    finnhubSymbol: "BINANCE:SOLUSDT",
+    rank: 14,
+    marketSymbol: "BINANCE:SOLUSDT",
     tvSymbol: "BINANCE:SOLUSDT",
   },
   {
@@ -440,8 +376,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 4,
     icon: "✕",
-    rank: 18,
-    finnhubSymbol: "BINANCE:XRPUSDT",
+    rank: 15,
+    marketSymbol: "BINANCE:XRPUSDT",
     tvSymbol: "BITSTAMP:XRPUSD",
   },
   {
@@ -454,8 +390,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "🔶",
-    rank: 19,
-    finnhubSymbol: "BINANCE:BNBUSDT",
+    rank: 16,
+    marketSymbol: "BINANCE:BNBUSDT",
     tvSymbol: "BINANCE:BNBUSDT",
   },
   {
@@ -468,8 +404,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 4,
     icon: "₳",
-    rank: 20,
-    finnhubSymbol: "BINANCE:ADAUSDT",
+    rank: 17,
+    marketSymbol: "BINANCE:ADAUSDT",
     tvSymbol: "BINANCE:ADAUSDT",
   },
   {
@@ -482,8 +418,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "🎮",
-    rank: 21,
-    finnhubSymbol: "NVDA",
+    rank: 18,
+    marketSymbol: "NVDA",
     tvSymbol: "NASDAQ:NVDA",
   },
   {
@@ -496,8 +432,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "🍎",
-    rank: 22,
-    finnhubSymbol: "AAPL",
+    rank: 19,
+    marketSymbol: "AAPL",
     tvSymbol: "NASDAQ:AAPL",
   },
   {
@@ -510,8 +446,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "📦",
-    rank: 23,
-    finnhubSymbol: "AMZN",
+    rank: 20,
+    marketSymbol: "AMZN",
     tvSymbol: "NASDAQ:AMZN",
   },
   {
@@ -524,8 +460,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "🪟",
-    rank: 24,
-    finnhubSymbol: "MSFT",
+    rank: 21,
+    marketSymbol: "MSFT",
     tvSymbol: "NASDAQ:MSFT",
   },
   {
@@ -538,8 +474,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "⚡",
-    rank: 25,
-    finnhubSymbol: "TSLA",
+    rank: 22,
+    marketSymbol: "TSLA",
     tvSymbol: "NASDAQ:TSLA",
   },
   {
@@ -552,8 +488,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "👤",
-    rank: 26,
-    finnhubSymbol: "META",
+    rank: 23,
+    marketSymbol: "META",
     tvSymbol: "NASDAQ:META",
   },
   {
@@ -566,8 +502,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "G",
-    rank: 27,
-    finnhubSymbol: "GOOGL",
+    rank: 24,
+    marketSymbol: "GOOGL",
     tvSymbol: "NASDAQ:GOOGL",
   },
   {
@@ -580,8 +516,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "🎬",
-    rank: 28,
-    finnhubSymbol: "NFLX",
+    rank: 25,
+    marketSymbol: "NFLX",
     tvSymbol: "NASDAQ:NFLX",
   },
   {
@@ -594,8 +530,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "🏦",
-    rank: 29,
-    finnhubSymbol: "JPM",
+    rank: 26,
+    marketSymbol: "JPM",
     tvSymbol: "NYSE:JPM",
   },
   {
@@ -608,8 +544,8 @@ const ASSETS: Asset[] = [
     leverage: 20,
     digits: 1,
     icon: "📊",
-    rank: 30,
-    finnhubSymbol: undefined,
+    rank: 27,
+    marketSymbol: undefined,
     tvSymbol: "SP:SPX",
   },
   {
@@ -622,8 +558,8 @@ const ASSETS: Asset[] = [
     leverage: 20,
     digits: 1,
     icon: "💻",
-    rank: 31,
-    finnhubSymbol: undefined,
+    rank: 28,
+    marketSymbol: undefined,
     tvSymbol: "NASDAQ:NDX",
   },
   {
@@ -636,8 +572,8 @@ const ASSETS: Asset[] = [
     leverage: 20,
     digits: 1,
     icon: "🏛",
-    rank: 32,
-    finnhubSymbol: undefined,
+    rank: 29,
+    marketSymbol: undefined,
     tvSymbol: "TVC:DJI",
   },
   {
@@ -650,8 +586,8 @@ const ASSETS: Asset[] = [
     leverage: 20,
     digits: 1,
     icon: "🇬🇧",
-    rank: 33,
-    finnhubSymbol: undefined,
+    rank: 30,
+    marketSymbol: undefined,
     tvSymbol: "TVC:UKX",
   },
   {
@@ -664,8 +600,8 @@ const ASSETS: Asset[] = [
     leverage: 20,
     digits: 1,
     icon: "🇩🇪",
-    rank: 34,
-    finnhubSymbol: undefined,
+    rank: 31,
+    marketSymbol: undefined,
     tvSymbol: "TVC:DEX",
   },
   {
@@ -678,8 +614,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "📈",
-    rank: 35,
-    finnhubSymbol: "SPY",
+    rank: 32,
+    marketSymbol: "SPY",
     tvSymbol: "AMEX:SPY",
   },
   {
@@ -692,8 +628,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "📱",
-    rank: 36,
-    finnhubSymbol: "QQQ",
+    rank: 33,
+    marketSymbol: "QQQ",
     tvSymbol: "NASDAQ:QQQ",
   },
   {
@@ -706,8 +642,8 @@ const ASSETS: Asset[] = [
     leverage: 5,
     digits: 2,
     icon: "🏅",
-    rank: 37,
-    finnhubSymbol: "GLD",
+    rank: 34,
+    marketSymbol: "GLD",
     tvSymbol: "AMEX:GLD",
   },
 ];
@@ -793,7 +729,6 @@ function useTickPrice(
   basePrice: number,
   spread: number,
   isLive: boolean,
-  finnhubSymbol?: string,
 ): number {
   const [tickPrice, setTickPrice] = useState(basePrice);
   const baseRef = useRef(basePrice);
@@ -811,16 +746,14 @@ function useTickPrice(
   }, [basePrice]);
 
   useEffect(() => {
-    // Flutua até ±90% do spread em cada tick (~50-90ms) para resposta super fluida
+    // Flutua até ±25% do spread em cada tick (~300-500ms) — mais rápido e realista
     // Quando mercado fechado (isLive=false) mostra o preço base fixo
     let id: ReturnType<typeof setTimeout>;
     const schedule = () => {
       id = setTimeout(
         () => {
-          if (isWeekend()) {
-            setTickPrice(baseRef.current);
-          } else if (liveRef.current) {
-            const maxDelta = spread * 0.37;
+          if (liveRef.current) {
+            const maxDelta = spread * 0.25;
             setTickPrice(
               baseRef.current + (Math.random() - 0.5) * 2 * maxDelta,
             );
@@ -829,71 +762,12 @@ function useTickPrice(
           }
           schedule();
         },
-        350 + Math.random() * 150,
+        300 + Math.random() * 200,
       );
     };
     schedule();
     return () => clearTimeout(id);
   }, [spread]);
-
-  // Para Ouro (XAUUSD), ancorar o preço do botão à mesma fonte OANDA/Finnhub
-  // para reduzir divergência visual entre gráfico e bid/ask.
-  useEffect(() => {
-    if (finnhubSymbol !== "OANDA:XAU_USD") return;
-
-    // Se há override admin ativo, não sobrescrever o preço base com feed externo.
-    if (priceStore.getAdminOverride("xauusd") !== null) return;
-
-    let dead = false;
-    async function syncGoldQuote() {
-      try {
-        // 1) Tentar Finnhub (feed primário)
-        let q: number | null = null;
-        try {
-          const r = await fetch(
-            `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(finnhubSymbol)}&token=${FINNHUB_TOKEN}`,
-            { cache: "no-store" },
-          );
-          const d = await r.json();
-          q =
-            typeof d?.c === "number" && d.c > 0
-              ? d.c
-              : typeof d?.pc === "number" && d.pc > 0
-                ? d.pc
-                : null;
-        } catch {
-          q = null;
-        }
-
-        // 2) Fallback sem API key para manter XAUUSD alinhado ao gráfico
-        if (q === null) {
-          try {
-            const r2 = await fetch("https://api.gold-api.com/price/XAU", {
-              cache: "no-store",
-            });
-            const d2 = await r2.json();
-            q = typeof d2?.price === "number" && d2.price > 0 ? d2.price : null;
-          } catch {
-            q = null;
-          }
-        }
-
-        if (!dead && q !== null) {
-          baseRef.current = q;
-          setTickPrice(q);
-        }
-      } catch {
-        /* silent */
-      }
-    }
-
-    syncGoldQuote();
-    const id = setInterval(syncGoldQuote, 1_200);
-    return () => {
-      dead = true;
-      clearInterval(id);
-    };
-  }, [finnhubSymbol]);
 
   return tickPrice;
 }
@@ -935,16 +809,11 @@ function ChartModal({
   const [takeProfitVal, setTakeProfitVal] = useState("");
   const [pendingOrder, setPendingOrder] = useState(false);
   const [pendingPrice, setPendingPrice] = useState("");
-  const effectiveSpread = getEffectiveSpread(asset);
 
   // Preço com micro-fluctuação para display (apenas quando mercado aberto)
-  const tickPrice = useTickPrice(
-    price,
-    effectiveSpread,
-    isLive,
-    asset.finnhubSymbol,
-  );
-  const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
+  const tickPrice = useTickPrice(price, asset.spread, isLive);
+  const bid = tickPrice;
+  const ask = tickPrice + asset.spread;
   const displayPrice = tradeType === "buy" ? ask : bid;
   const amountNum = parseFloat(amount) || 100;
   const lotsNum = parseFloat(lots) || 0.01;
@@ -976,7 +845,7 @@ function ChartModal({
     const amt = (leveraged * dir * (sl - displayPrice)) / displayPrice;
     return { amount: amt, pct: calcAmount > 0 ? (amt / calcAmount) * 100 : 0 };
   })();
-  const spreadCost = leveraged * (effectiveSpread / displayPrice);
+  const spreadCost = leveraged * (asset.spread / displayPrice);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1002,7 +871,7 @@ function ChartModal({
       return;
     }
     // ── Bloqueio sem cotação disponível (modal) ───────────────────────────────
-    if (asset.finnhubSymbol && !isLive) {
+    if (asset.marketSymbol && !isLive) {
       setToast("❌ Mercado não está aberto para este ativo");
       notificationStore.add(
         "info",
@@ -1013,7 +882,8 @@ function ChartModal({
       return;
     }
     // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
-    const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
+    const bid = tickPrice;
+    const ask = tickPrice + asset.spread;
     const execPrice = tradeType === "buy" ? ask : bid;
     const cs = getContractSize(asset);
     const lotsN =
@@ -1052,7 +922,7 @@ function ChartModal({
         amount: amountN,
         leverage: selectedLeverage,
         targetPrice: parseFloat(pendingPrice),
-        spread: effectiveSpread,
+        spread: asset.spread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -1075,7 +945,7 @@ function ChartModal({
         amount: amountN,
         leverage: selectedLeverage,
         openPrice: execPrice,
-        spread: effectiveSpread,
+        spread: asset.spread,
         stopLoss: slVal,
         takeProfit: tpVal,
       });
@@ -1268,7 +1138,7 @@ function ChartModal({
                   {simTP || simSL ? "Simulação de alvo" : "Simulação 1%"}
                 </p>
                 <span className="text-[10px] text-muted-foreground">
-                  Spread: {effectiveSpread.toFixed(asset.digits)}
+                  Spread: {asset.spread.toFixed(asset.digits)}
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -1341,7 +1211,7 @@ function ChartModal({
                             stopLossVal || bid.toFixed(asset.digits),
                           );
                           setStopLossVal(
-                            (v - effectiveSpread * 10).toFixed(asset.digits),
+                            (v - asset.spread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1361,7 +1231,7 @@ function ChartModal({
                             stopLossVal || bid.toFixed(asset.digits),
                           );
                           setStopLossVal(
-                            (v + effectiveSpread * 10).toFixed(asset.digits),
+                            (v + asset.spread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1404,7 +1274,7 @@ function ChartModal({
                             takeProfitVal || ask.toFixed(asset.digits),
                           );
                           setTakeProfitVal(
-                            (v - effectiveSpread * 10).toFixed(asset.digits),
+                            (v - asset.spread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1424,7 +1294,7 @@ function ChartModal({
                             takeProfitVal || ask.toFixed(asset.digits),
                           );
                           setTakeProfitVal(
-                            (v + effectiveSpread * 10).toFixed(asset.digits),
+                            (v + asset.spread * 10).toFixed(asset.digits),
                           );
                         }}
                         className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
@@ -1576,815 +1446,6 @@ function ChartModal({
   );
 }
 
-// ─── Finnhub real-time hook ───────────────────────────────────────────────────
-function useFinnhubPrices(assets: Asset[]) {
-  const [prices, setPrices] = useState<Record<string, number>>(() => {
-    // Inicializar com preços do priceStore (se já temos) ou basePrice
-    const cached = priceStore.get();
-    return Object.fromEntries(
-      assets.map((a) => [a.id, cached[a.id] ?? a.basePrice]),
-    );
-  });
-  // IDs de assets com preço ao vivo confirmado (d.c > 0 ou tick WS)
-  const [liveAssets, setLiveAssets] = useState<Set<string>>(new Set());
-  // Ref para aceder ao preço actual sem depender do closure do state updater
-  const pricesRef = useRef(prices);
-  // Ref síncrona de liveAssets — usada no retry interval sem depender do state
-  const liveAssetsRef = useRef<Set<string>>(new Set());
-
-  // Helper: actualizar state + publicar no priceStore partilhado.
-  // CRÍTICO: priceStore.set() NÃO pode ser chamado dentro de um setState updater
-  // (causaria setState num componente durante o render de outro).
-  const update = useCallback(
-    (patch: Record<string, number>, isLive = false) => {
-      pricesRef.current = { ...pricesRef.current, ...patch };
-      setPrices((prev) => ({ ...prev, ...patch }));
-      priceStore.set(patch); // ← fora do updater, seguro
-      if (isLive) {
-        Object.keys(patch).forEach((id) => liveAssetsRef.current.add(id));
-        setLiveAssets((prev) => {
-          const next = new Set(prev);
-          Object.keys(patch).forEach((id) => next.add(id));
-          return next;
-        });
-      }
-    },
-    [],
-  );
-
-  // REST — fetch inicial + retry a cada 30s para activos ainda não confirmados
-  useEffect(() => {
-    const fetchAll = async (onlyUnlive = false) => {
-      for (const asset of assets) {
-        const adminOverride = priceStore.getAdminOverride(asset.id);
-        if (adminOverride !== null) {
-          update({ [asset.id]: adminOverride }, true);
-          continue;
-        }
-
-        // Ouro: fallback dedicado sem API key para evitar ficar preso em valor antigo
-        if (asset.id === "xauusd") {
-          if (onlyUnlive && liveAssetsRef.current.has(asset.id)) continue;
-          try {
-            const r = await fetch("https://api.gold-api.com/price/XAU", {
-              cache: "no-store",
-            });
-            const d = await r.json();
-            if (typeof d?.price === "number" && d.price > 0) {
-              update({ [asset.id]: d.price }, true);
-              continue;
-            }
-          } catch {
-            /* silent */
-          }
-        }
-
-        if (!asset.finnhubSymbol) continue;
-        if (onlyUnlive && liveAssetsRef.current.has(asset.id)) continue;
-        try {
-          const res = await fetch(
-            `https://finnhub.io/api/v1/quote?symbol=${asset.finnhubSymbol}&token=${FINNHUB_TOKEN}`,
-          );
-          const data = await res.json();
-          if (data) {
-            if (data.c && data.c > 0) {
-              // Preço ao vivo confirmado pela API
-              update({ [asset.id]: data.c }, true);
-            } else if (data.pc && data.pc > 0 && isMarketDay()) {
-              // Finnhub retornou c=0 (quote atrasada) mas é dia de mercado:
-              // usar preço de fecho anterior como base e marcar como live
-              update({ [asset.id]: data.pc }, true);
-            }
-          }
-        } catch {
-          /* silent */
-        }
-      }
-    };
-    fetchAll(false);
-    // Retry a cada 30s apenas em dias de mercado, para activos não confirmados
-    const retryId = setInterval(() => {
-      if (!isMarketDay()) return;
-      fetchAll(true);
-    }, 30_000);
-    return () => clearInterval(retryId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // WebSocket Finnhub (real-time ticks)
-  useEffect(() => {
-    const ws = new WebSocket(`wss://ws.finnhub.io?token=${FINNHUB_TOKEN}`);
-
-    ws.onopen = () => {
-      assets.forEach((a) => {
-        if (a.finnhubSymbol) {
-          ws.send(
-            JSON.stringify({ type: "subscribe", symbol: a.finnhubSymbol }),
-          );
-        }
-      });
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        if (isWeekend()) return;
-        const msg = JSON.parse(event.data);
-        if (msg.type === "trade" && msg.data) {
-          const patch: Record<string, number> = {};
-          msg.data.forEach((tick: { s: string; p: number }) => {
-            const asset = assets.find((a) => a.finnhubSymbol === tick.s);
-            if (!asset || tick.p <= 0) return;
-            // Quando há override admin, o feed externo não deve sobrescrever.
-            if (priceStore.getAdminOverride(asset.id) !== null) return;
-            patch[asset.id] = tick.p;
-          });
-          if (Object.keys(patch).length) update(patch, true); // isLive=true
-        }
-      } catch {
-        /* silent */
-      }
-    };
-
-    return () => {
-      assets.forEach((a) => {
-        if (a.finnhubSymbol && ws.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({ type: "unsubscribe", symbol: a.finnhubSymbol }),
-          );
-        }
-      });
-      ws.close();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Simulação de micro-movimento para activos sem Finnhub (commodities, etc.)
-  // Estes são sempre considerados "live" para efeitos de negociação (preço simulado).
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (isWeekend()) return;
-      const patch: Record<string, number> = {};
-      assets.forEach((a) => {
-        if (!a.finnhubSymbol) {
-          const vol = a.basePrice * 0.00035;
-          const delta = (Math.random() - 0.5) * vol;
-          // Usa pricesRef (não setState updater) — evita chamar priceStore.set dentro de render
-          patch[a.id] = Math.max(
-            a.basePrice * 0.5,
-            pricesRef.current[a.id] + delta,
-          );
-        }
-      });
-      if (Object.keys(patch).length) update(patch);
-    }, 450);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [update]);
-
-  return { prices, liveAssets };
-}
-
-// ─── Trade Panel ──────────────────────────────────────────────────────────────
-function TradePanel({
-  asset,
-  price,
-  isLive,
-  onClose,
-  onOpenChart,
-  initialTradeType,
-}: {
-  asset: Asset;
-  price: number;
-  isLive: boolean;
-  onClose: () => void;
-  onOpenChart: () => void;
-  initialTradeType?: "buy" | "sell";
-}) {
-  const [tab, setTab] = useState<"amount" | "lots">("amount");
-  const [tradeType, setTradeType] = useState<"buy" | "sell">(
-    initialTradeType ?? "buy",
-  );
-  const [amount, setAmount] = useState("100");
-  const [lots, setLots] = useState("0.01");
-  const selectedLeverage = asset.leverage;
-  const [stopLoss, setStopLoss] = useState(false);
-  const [stopLossVal, setStopLossVal] = useState("");
-  const [takeProfit, setTakeProfit] = useState(false);
-  const [takeProfitVal, setTakeProfitVal] = useState("");
-  const [pendingOrder, setPendingOrder] = useState(false);
-  const [pendingPrice, setPendingPrice] = useState("");
-  const [isFav, setIsFav] = useState(false);
-  const effectiveSpread = getEffectiveSpread(asset);
-
-  // Preço com micro-fluctuação para display (apenas quando mercado aberto)
-  const tickPrice = useTickPrice(
-    price,
-    effectiveSpread,
-    isLive,
-    asset.finnhubSymbol,
-  );
-  const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
-  const displayPrice = tradeType === "buy" ? ask : bid;
-
-  const amountNum = parseFloat(amount) || 100;
-  const lotsNum = parseFloat(lots) || 0.01;
-  const contractSize = getContractSize(asset);
-  // Para o separador "lotes": margem = lots × contractSize × preço / alavancagem
-  const calcLots =
-    tab === "amount"
-      ? (amountNum * selectedLeverage) / (contractSize * displayPrice)
-      : lotsNum;
-  const calcAmount =
-    tab === "lots"
-      ? (lotsNum * contractSize * displayPrice) / selectedLeverage
-      : amountNum;
-  const leveraged = calcAmount * selectedLeverage;
-  const sim1Pct = leveraged * 0.01;
-  const simTP = (() => {
-    if (!takeProfit || !takeProfitVal) return null;
-    const tp = parseFloat(takeProfitVal);
-    if (isNaN(tp) || tp <= 0) return null;
-    const dir = tradeType === "buy" ? 1 : -1;
-    const amt = (leveraged * dir * (tp - displayPrice)) / displayPrice;
-    return { amount: amt, pct: calcAmount > 0 ? (amt / calcAmount) * 100 : 0 };
-  })();
-  const simSL = (() => {
-    if (!stopLoss || !stopLossVal) return null;
-    const sl = parseFloat(stopLossVal);
-    if (isNaN(sl) || sl <= 0) return null;
-    const dir = tradeType === "buy" ? 1 : -1;
-    const amt = (leveraged * dir * (sl - displayPrice)) / displayPrice;
-    return { amount: amt, pct: calcAmount > 0 ? (amt / calcAmount) * 100 : 0 };
-  })();
-  const spreadCost = leveraged * (effectiveSpread / displayPrice);
-
-  const [toast, setToast] = useState<string | null>(null);
-  const router = useRouter();
-
-  function executeTrade() {
-    // ── Bloqueio fim de semana ────────────────────────────────────────────────
-    if (isWeekend()) {
-      setToast("❌ Mercados fechados ao fim de semana");
-      notificationStore.add(
-        "info",
-        "Mercados fechados",
-        "Os mercados estão encerrados ao sábado e domingo.",
-      );
-      setTimeout(() => setToast(null), 2500);
-      return;
-    }
-    // ── Bloqueio sem cotação disponível (painel) ──────────────────────────────
-    if (asset.finnhubSymbol && !isLive) {
-      setToast("❌ Mercado não está aberto para este ativo");
-      notificationStore.add(
-        "info",
-        "Mercado não disponível",
-        `${asset.symbol} — sem cotação disponível de momento. Tente novamente em alguns instantes.`,
-      );
-      setTimeout(() => setToast(null), 3000);
-      return;
-    }
-    // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
-    const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpread);
-    const execPrice = tradeType === "buy" ? ask : bid;
-    const cs = getContractSize(asset);
-    const lotsN =
-      tab === "amount"
-        ? ((parseFloat(amount) || 100) * selectedLeverage) / (cs * execPrice)
-        : parseFloat(lots) || 0.01;
-    const amountN =
-      tab === "lots"
-        ? ((parseFloat(lots) || 0.01) * cs * execPrice) / selectedLeverage
-        : parseFloat(amount) || 100;
-    // ── Verificação de saldo ──────────────────────────────────────────────────
-    const bal = getCurrentBalance();
-    if (amountN > bal) {
-      setToast(`❌ Saldo insuficiente ($${bal.toFixed(2)})`);
-      notificationStore.add(
-        "info",
-        "Saldo insuficiente",
-        `Precisa de $${amountN.toFixed(2)} mas tem $${bal.toFixed(2)} disponíveis.`,
-      );
-      setTimeout(() => setToast(null), 2500);
-      return;
-    }
-    const slVal = stopLoss && stopLossVal ? parseFloat(stopLossVal) : null;
-    const tpVal =
-      takeProfit && takeProfitVal ? parseFloat(takeProfitVal) : null;
-    if (pendingOrder && pendingPrice) {
-      tradeStore.addPending({
-        assetId: asset.id,
-        symbol: asset.symbol,
-        name: asset.name,
-        icon: asset.icon,
-        digits: asset.digits,
-        tvSymbol: asset.tvSymbol,
-        type: tradeType,
-        lots: lotsN,
-        amount: amountN,
-        leverage: selectedLeverage,
-        targetPrice: parseFloat(pendingPrice),
-        spread: effectiveSpread,
-        stopLoss: slVal,
-        takeProfit: tpVal,
-      });
-      notificationStore.add(
-        "info",
-        "Pedido pendente criado",
-        `${asset.symbol} ${tradeType === "buy" ? "Comprar" : "Vender"} a ${parseFloat(pendingPrice).toFixed(asset.digits)}`,
-      );
-      setToast("Pedido pendente criado!");
-    } else {
-      tradeStore.addOpen({
-        assetId: asset.id,
-        symbol: asset.symbol,
-        name: asset.name,
-        icon: asset.icon,
-        digits: asset.digits,
-        tvSymbol: asset.tvSymbol,
-        type: tradeType,
-        lots: lotsN,
-        amount: amountN,
-        leverage: selectedLeverage,
-        openPrice: execPrice,
-        spread: effectiveSpread,
-        stopLoss: slVal,
-        takeProfit: tpVal,
-      });
-      notificationStore.add(
-        "trade_open",
-        tradeType === "buy"
-          ? `Compra aberta — ${asset.symbol}`
-          : `Venda aberta — ${asset.symbol}`,
-        `$${amountN.toFixed(2)} @ ${execPrice.toFixed(asset.digits)} | Alavancagem 1:${selectedLeverage}`,
-      );
-      setToast(
-        tradeType === "buy"
-          ? `Comprado ${asset.symbol}!`
-          : `Vendido ${asset.symbol}!`,
-      );
-    }
-    setTimeout(() => {
-      setToast(null);
-      onClose();
-      router.push("/trade/dashboard/portfolio");
-    }, 1400);
-  }
-
-  return (
-    <div className="flex flex-col h-full bg-card border-l border-border">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <AssetIcon asset={asset} size="md" />
-          <div>
-            <p className="font-bold text-foreground text-sm">{asset.symbol}</p>
-            <p className="text-xs text-muted-foreground truncate max-w-[140px]">
-              {asset.name}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button onClick={() => setIsFav((f) => !f)}>
-            <Star
-              className={cn(
-                "w-4 h-4 transition-colors",
-                isFav
-                  ? "fill-yellow-400 text-yellow-400"
-                  : "text-muted-foreground hover:text-yellow-400",
-              )}
-            />
-          </button>
-          <button
-            onClick={onOpenChart}
-            title="Ampliar grafico"
-            className="p-1 rounded hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground"
-          >
-            <Maximize2 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Chart clickable area */}
-      <div
-        className="relative h-52 bg-background/60 border-b border-border overflow-hidden flex-shrink-0 group cursor-pointer"
-        onClick={onOpenChart}
-      >
-        <TradingViewChart
-          tvSymbol={asset.tvSymbol}
-          interval="D"
-          height="100%"
-        />
-        <div className="absolute inset-0 bg-transparent group-hover:bg-black/10 transition-colors flex items-center justify-center pointer-events-none">
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 rounded-full p-2">
-            <Maximize2 className="w-5 h-5 text-white" />
-          </div>
-        </div>
-      </div>
-
-      {/* Bid / Ask buttons */}
-      <div className="grid grid-cols-2 border-b border-border flex-shrink-0">
-        <button
-          onClick={() => setTradeType("sell")}
-          className={cn(
-            "py-3 text-center transition-colors border-r border-border",
-            tradeType === "sell" ? "bg-red-500" : "hover:bg-red-500/10",
-          )}
-        >
-          <p
-            className={cn(
-              "text-[10px] uppercase tracking-wide",
-              tradeType === "sell" ? "text-white/80" : "text-muted-foreground",
-            )}
-          >
-            Vender
-          </p>
-          <p
-            className={cn(
-              "text-lg font-bold tabular-nums",
-              tradeType === "sell" ? "text-white" : "text-red-500",
-            )}
-          >
-            {bid.toFixed(asset.digits)}
-          </p>
-        </button>
-        <button
-          onClick={() => setTradeType("buy")}
-          className={cn(
-            "py-3 text-center transition-colors",
-            tradeType === "buy" ? "bg-green-600" : "hover:bg-green-600/10",
-          )}
-        >
-          <p
-            className={cn(
-              "text-[10px] uppercase tracking-wide",
-              tradeType === "buy" ? "text-white/80" : "text-muted-foreground",
-            )}
-          >
-            Comprar
-          </p>
-          <p
-            className={cn(
-              "text-lg font-bold tabular-nums",
-              tradeType === "buy" ? "text-white" : "text-green-500",
-            )}
-          >
-            {ask.toFixed(asset.digits)}
-          </p>
-        </button>
-      </div>
-
-      {/* Controls */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Amount / Lots tab */}
-        <div className="flex rounded-lg bg-muted/50 p-0.5">
-          {(["amount", "lots"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={cn(
-                "flex-1 py-1.5 rounded-md text-sm font-medium transition-colors",
-                tab === t
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t === "amount" ? "Montante" : "Lotes"}
-            </button>
-          ))}
-        </div>
-
-        {/* Input */}
-        <div className="flex items-center gap-2 border border-border rounded-xl px-3 py-2.5 bg-background/60">
-          <span className="text-muted-foreground text-sm">$</span>
-          <input
-            type="number"
-            min="0"
-            value={tab === "amount" ? amount : lots}
-            onChange={(e) =>
-              tab === "amount"
-                ? setAmount(e.target.value)
-                : setLots(e.target.value)
-            }
-            className="flex-1 bg-transparent text-foreground text-base font-semibold outline-none"
-          />
-          <div className="flex flex-col">
-            <button
-              onClick={() =>
-                tab === "amount"
-                  ? setAmount((v) => String((parseFloat(v) || 0) + 10))
-                  : setLots((v) =>
-                      String(
-                        Math.round(((parseFloat(v) || 0) + 0.01) * 100) / 100,
-                      ),
-                    )
-              }
-              className="w-5 h-5 flex items-center justify-center text-muted-foreground hover:text-foreground"
-            >
-              <Plus className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() =>
-                tab === "amount"
-                  ? setAmount((v) =>
-                      String(Math.max(1, (parseFloat(v) || 0) - 10)),
-                    )
-                  : setLots((v) =>
-                      String(
-                        Math.max(
-                          0.01,
-                          Math.round(((parseFloat(v) || 0) - 0.01) * 100) / 100,
-                        ),
-                      ),
-                    )
-              }
-              className="w-5 h-5 flex items-center justify-center text-muted-foreground hover:text-foreground"
-            >
-              <Minus className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="bg-muted/30 rounded-lg p-2">
-            <p className="text-[10px] text-muted-foreground">Lotes</p>
-            <p className="text-sm font-semibold text-foreground">
-              {calcLots.toFixed(4)}
-            </p>
-          </div>
-          <div className="bg-muted/30 rounded-lg p-2">
-            <p className="text-[10px] text-muted-foreground">Alavancagem</p>
-            <p className="text-sm font-semibold text-foreground">
-              1:{selectedLeverage}
-            </p>
-          </div>
-          <div className="bg-muted/30 rounded-lg p-2">
-            <p className="text-[10px] text-muted-foreground">Alavancado</p>
-            <p className="text-sm font-semibold text-foreground">
-              ${leveraged.toFixed(2)}
-            </p>
-          </div>
-        </div>
-
-        {/* Simulation box — dynamic TP/SL */}
-        <div className="bg-accent/5 border border-accent/20 rounded-xl p-3 space-y-1.5">
-          <div className="flex items-center justify-between mb-0.5">
-            <p className="text-[11px] text-muted-foreground font-semibold">
-              {simTP || simSL ? "Simulação de alvo" : "Simulação 1%"}
-            </p>
-            <span className="text-[10px] text-muted-foreground">
-              Spread: {effectiveSpread.toFixed(asset.digits)}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-muted-foreground">
-              Ganho {simTP ? "(TP)" : "(+1%)"}
-            </span>
-            <span className="text-sm font-bold text-green-600">
-              +${(simTP ? simTP.amount : sim1Pct).toFixed(2)}
-              {simTP && (
-                <span className="text-[10px] font-normal ml-1">
-                  ({simTP.pct.toFixed(2)}%)
-                </span>
-              )}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-muted-foreground">
-              Perda {simSL ? "(SL)" : "(-1%)"}
-            </span>
-            <span className="text-sm font-bold text-red-500">
-              -${Math.abs(simSL ? simSL.amount : sim1Pct).toFixed(2)}
-              {simSL && (
-                <span className="text-[10px] font-normal ml-1">
-                  ({Math.abs(simSL.pct).toFixed(2)}%)
-                </span>
-              )}
-            </span>
-          </div>
-          <div className="border-t border-border/30 pt-1 flex justify-between items-center">
-            <span className="text-[10px] text-muted-foreground">
-              Custo spread: ${spreadCost.toFixed(2)}
-            </span>
-            {simTP && simSL && Math.abs(simSL.amount) > 0.001 && (
-              <span className="text-[10px] font-bold text-accent">
-                R/R 1:
-                {(Math.abs(simTP.amount) / Math.abs(simSL.amount)).toFixed(2)}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* LIMITES */}
-        <div className="space-y-2">
-          <p className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider">
-            Limites
-          </p>
-          {/* Stop Loss */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="tp-sl"
-                checked={stopLoss}
-                onChange={(e) => setStopLoss(e.target.checked)}
-                className="w-3.5 h-3.5 accent-red-500"
-              />
-              <label
-                htmlFor="tp-sl"
-                className="flex-1 text-sm font-medium text-foreground cursor-pointer"
-              >
-                Parar a perda
-              </label>
-              {stopLoss && (
-                <div className="flex items-center gap-0.5">
-                  <button
-                    onClick={() => {
-                      const v = parseFloat(
-                        stopLossVal || bid.toFixed(asset.digits),
-                      );
-                      setStopLossVal(
-                        (v - effectiveSpread * 10).toFixed(asset.digits),
-                      );
-                    }}
-                    className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
-                  >
-                    <Minus className="w-2.5 h-2.5" />
-                  </button>
-                  <input
-                    type="number"
-                    value={stopLossVal}
-                    placeholder={bid.toFixed(asset.digits)}
-                    onChange={(e) => setStopLossVal(e.target.value)}
-                    className="w-24 bg-background border border-border rounded-md px-2 py-1 text-xs outline-none focus:border-red-400 text-right"
-                  />
-                  <button
-                    onClick={() => {
-                      const v = parseFloat(
-                        stopLossVal || bid.toFixed(asset.digits),
-                      );
-                      setStopLossVal(
-                        (v + effectiveSpread * 10).toFixed(asset.digits),
-                      );
-                    }}
-                    className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
-                  >
-                    <Plus className="w-2.5 h-2.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-            {stopLoss && simSL && (
-              <p className="text-[10px] pl-5 text-red-500">
-                Perda: <strong>${Math.abs(simSL.amount).toFixed(2)}</strong>{" "}
-                <span className="text-muted-foreground">
-                  ({Math.abs(simSL.pct).toFixed(2)}%)
-                </span>
-              </p>
-            )}
-          </div>
-          {/* Take Profit */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="tp-tp"
-                checked={takeProfit}
-                onChange={(e) => setTakeProfit(e.target.checked)}
-                className="w-3.5 h-3.5 accent-green-500"
-              />
-              <label
-                htmlFor="tp-tp"
-                className="flex-1 text-sm font-medium text-foreground cursor-pointer"
-              >
-                Tirar Lucro
-              </label>
-              {takeProfit && (
-                <div className="flex items-center gap-0.5">
-                  <button
-                    onClick={() => {
-                      const v = parseFloat(
-                        takeProfitVal || ask.toFixed(asset.digits),
-                      );
-                      setTakeProfitVal(
-                        (v - effectiveSpread * 10).toFixed(asset.digits),
-                      );
-                    }}
-                    className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
-                  >
-                    <Minus className="w-2.5 h-2.5" />
-                  </button>
-                  <input
-                    type="number"
-                    value={takeProfitVal}
-                    placeholder={ask.toFixed(asset.digits)}
-                    onChange={(e) => setTakeProfitVal(e.target.value)}
-                    className="w-24 bg-background border border-border rounded-md px-2 py-1 text-xs outline-none focus:border-green-400 text-right"
-                  />
-                  <button
-                    onClick={() => {
-                      const v = parseFloat(
-                        takeProfitVal || ask.toFixed(asset.digits),
-                      );
-                      setTakeProfitVal(
-                        (v + effectiveSpread * 10).toFixed(asset.digits),
-                      );
-                    }}
-                    className="w-5 h-5 bg-muted/50 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
-                  >
-                    <Plus className="w-2.5 h-2.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-            {takeProfit && simTP && (
-              <p className="text-[10px] pl-5 text-green-600">
-                Ganho: <strong>${simTP.amount.toFixed(2)}</strong>{" "}
-                <span className="text-muted-foreground">
-                  ({simTP.pct.toFixed(2)}%)
-                </span>
-              </p>
-            )}
-          </div>
-          {simTP && simSL && Math.abs(simSL.amount) > 0.001 && (
-            <p className="text-[10px] text-muted-foreground border-t border-border/30 pt-1">
-              Risco/Retorno: 1:
-              {(Math.abs(simTP.amount) / Math.abs(simSL.amount)).toFixed(2)}
-            </p>
-          )}
-        </div>
-
-        {/* Pending Order */}
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={pendingOrder}
-              onChange={(e) => setPendingOrder(e.target.checked)}
-              className="rounded"
-            />
-            <span className="text-sm text-foreground">Pedido Pendente</span>
-          </label>
-          {pendingOrder && (
-            <div className="flex items-center gap-2 border border-border rounded-xl px-3 py-2 bg-background/60">
-              <span className="text-xs text-muted-foreground flex-shrink-0">
-                Quando preco atingir:
-              </span>
-              <input
-                type="number"
-                placeholder={displayPrice.toFixed(asset.digits)}
-                value={pendingPrice}
-                onChange={(e) => setPendingPrice(e.target.value)}
-                className="flex-1 bg-transparent text-foreground text-sm font-semibold outline-none text-right"
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Invest button — painel lateral */}
-      <div className="p-4 border-t border-border flex-shrink-0">
-        {toast ? (
-          <div
-            className={cn(
-              "w-full py-4 rounded-xl text-sm font-semibold flex items-center justify-center gap-2",
-              toast.startsWith("❌")
-                ? "bg-red-500/10 border border-red-500/30 text-red-400"
-                : "bg-green-500/20 border border-green-500/40 text-green-400",
-            )}
-          >
-            {toast.startsWith("❌") ? (
-              <AlertTriangle className="w-4 h-4" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4" />
-            )}{" "}
-            {toast}
-          </div>
-        ) : (
-          <button
-            onClick={executeTrade}
-            className={cn(
-              "w-full py-4 rounded-xl font-bold text-lg transition-all active:scale-95",
-              tradeType === "buy"
-                ? "bg-green-600 text-white hover:bg-green-700"
-                : "bg-red-500 text-white hover:bg-red-600",
-            )}
-          >
-            {tradeType === "buy" ? "Comprar" : "Vender"} {asset.symbol}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 function AssetsPageInner() {
   const searchParams = useSearchParams();
@@ -2400,21 +1461,17 @@ function AssetsPageInner() {
     "open",
   );
 
-  const { prices, liveAssets } = useFinnhubPrices(ASSETS);
+  const { prices } = useFinnhubPrices(ASSETS);
 
-  // ── Micro-tick para a tabela (±90% do spread, 50-90ms) ───────────────────
+  // ── Micro-tick para a tabela (±25% do spread, 700-1100ms) ────────────────
   const [tickPrices, setTickPrices] = useState<Record<string, number>>(() =>
     Object.fromEntries(ASSETS.map((a) => [a.id, prices[a.id] ?? a.basePrice])),
   );
   const tickBasesRef = useRef<Record<string, number>>({});
-  const liveAssetsRef = useRef<Set<string>>(liveAssets);
   // Sincroniza refs sem re-criar o timer
   useEffect(() => {
     tickBasesRef.current = { ...tickBasesRef.current, ...prices };
   }, [prices]);
-  useEffect(() => {
-    liveAssetsRef.current = liveAssets;
-  }, [liveAssets]);
   useEffect(() => {
     let id: ReturnType<typeof setTimeout>;
     const schedule = () => {
@@ -2424,17 +1481,11 @@ function AssetsPageInner() {
             const next: Record<string, number> = {};
             ASSETS.forEach((a) => {
               const base = tickBasesRef.current[a.id] ?? a.basePrice;
-              if (isWeekend()) {
-                next[a.id] = base;
-                return;
-              }
               // Só flutua quando o mercado está aberto (live) ou sem símbolo Finnhub (simulado)
               const isLive =
-                !a.finnhubSymbol ||
-                isMarketDay() ||
-                liveAssetsRef.current.has(a.id);
+                !a.marketSymbol || isMarketDay() || liveAssets.has(a.id);
               if (isLive) {
-                const maxDelta = a.spread * 0.37;
+                const maxDelta = a.spread * 0.25;
                 next[a.id] = base + (Math.random() - 0.5) * 2 * maxDelta;
               } else {
                 next[a.id] = base; // estático quando fechado
@@ -2444,7 +1495,7 @@ function AssetsPageInner() {
           });
           schedule();
         },
-        350 + Math.random() * 150,
+        300 + Math.random() * 200,
       );
     };
     schedule();
@@ -2470,33 +1521,14 @@ function AssetsPageInner() {
     Object.fromEntries(ASSETS.map((a) => [a.id, 0])),
   );
   useEffect(() => {
-    // Oscilação suave e lenta para a coluna "Alterar 1D".
-    // Mantém variações pequenas e menos frequentes que saldo/margens.
     setChanges(
       Object.fromEntries(
         ASSETS.map((a) => [
           a.id,
-          parseFloat((Math.random() * 1.2 - 0.6).toFixed(2)),
+          parseFloat((Math.random() * 4 - 2).toFixed(2)),
         ]),
       ),
     );
-
-    const id = setInterval(() => {
-      setChanges((prev) => {
-        const next: Record<string, number> = {};
-        ASSETS.forEach((a) => {
-          const current = prev[a.id] ?? 0;
-          const step = (Math.random() - 0.5) * 0.12; // ~±0.06 por atualização
-          const drift = current + step;
-          // Evita extremos e mantém visual realista na lista
-          const bounded = Math.max(-2.5, Math.min(2.5, drift));
-          next[a.id] = parseFloat(bounded.toFixed(2));
-        });
-        return next;
-      });
-    }, 2500);
-
-    return () => clearInterval(id);
   }, []);
 
   const toggleFavorite = useCallback((id: string, e: React.MouseEvent) => {
@@ -2552,7 +1584,7 @@ function AssetsPageInner() {
           asset={chartModal}
           price={prices[chartModal.id]}
           isLive={
-            !chartModal.finnhubSymbol ||
+            !chartModal.marketSymbol ||
             isMarketDay() ||
             liveAssets.has(chartModal.id)
           }
@@ -2658,7 +1690,7 @@ function AssetsPageInner() {
                 const isFav = favorites.has(asset.id);
                 const isSelected = selectedAsset?.id === asset.id;
                 const bid = tickPrices[asset.id] ?? price;
-                const ask = bid + getEffectiveSpread(asset);
+                const ask = bid + asset.spread;
                 const bsPct = Math.min(
                   95,
                   Math.max(5, Math.round(50 + change * 5)),
@@ -2755,7 +1787,7 @@ function AssetsPageInner() {
               asset={selectedAsset}
               price={prices[selectedAsset.id]}
               isLive={
-                !selectedAsset.finnhubSymbol ||
+                !selectedAsset.marketSymbol ||
                 isMarketDay() ||
                 liveAssets.has(selectedAsset.id)
               }

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
@@ -26,8 +26,7 @@ import { supabase } from "@/lib/supabase";
 import { profileStore } from "@/lib/profile-store";
 import { useT } from "@/lib/i18n";
 
-const FINNHUB_TOKEN = "KSA1gzO1nFSBTe4hKfw0KJvJQhhx_E_e";
-const FINNHUB_MAP: Record<string, string> = {
+const MARKET_SYMBOL_MAP: Record<string, string> = {
   eurusd: "OANDA:EUR_USD",
   eurgbp: "OANDA:EUR_GBP",
   usdjpy: "OANDA:USD_JPY",
@@ -58,6 +57,8 @@ const FINNHUB_MAP: Record<string, string> = {
   qqq: "QQQ",
   gld: "GLD",
 };
+
+const ALPHA_VANTAGE_API_KEY = "70LHTSY4QJV4SYE5";
 
 function fmt(n: number) {
   return n.toLocaleString("pt-PT", {
@@ -480,21 +481,20 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
           // Assets com override admin não são actualizados pelo Finnhub
           // (o admin controla o preço — respeitamos o valor definido)
           if (priceStore.getAdminOverride(pos.assetId) !== null) return;
-          const sym = FINNHUB_MAP[pos.assetId];
+          const sym = MARKET_SYMBOL_MAP[pos.assetId];
           if (!sym) return;
           try {
-            const r = await fetch(
-              `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${FINNHUB_TOKEN}`,
-              { cache: "no-store" },
-            );
-            const d = await r.json();
-            if (d.c && d.c > 0) {
-              // Mercado aberto — preço real → TP/SL + display
-              livePrices[pos.assetId] = d.c;
-              displayPrices[pos.assetId] = d.c;
-            } else if (d.pc && d.pc > 0) {
-              // Mercado fechado — previous-close apenas para equity/display, NUNCA para TP/SL
-              displayPrices[pos.assetId] = d.pc;
+            const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(sym)}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (
+              data &&
+              data["Global Quote"] &&
+              data["Global Quote"]["05. price"]
+            ) {
+              livePrices[pos.assetId] = parseFloat(
+                data["Global Quote"]["05. price"],
+              );
             }
           } catch {
             /* silent */

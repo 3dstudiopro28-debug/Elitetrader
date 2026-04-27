@@ -1,5 +1,5 @@
-// ─── Price Store — shared live price cache ────────────────────────────────────
-// O header é o único componente que chama a API Finnhub (a cada 8s).
+﻿// ─── Price Store — shared live price cache ────────────────────────────────────
+// O header é o único componente que chama a API Alpha Vantage (a cada 8s).
 // Todos os outros componentes (portfolio, sidebar, etc.) subscrevem este store.
 // Evita rate-limiting do plano free (60 req/min) por múltiplos pollers concorrentes.
 
@@ -8,7 +8,7 @@ const EVENT_NAME = "et-prices-update"
 // Cache em memória — persiste entre navegações de rota dentro da SPA.
 const _cache: Record<string, number> = {}
 
-// Overrides do admin — têm prioridade sobre simulação mas não sobre Finnhub real.
+// Overrides do admin — têm prioridade sobre simulação mas não sobre Alpha Vantage real.
 // Actualmente suporta apenas xauusd.
 const _adminOverrides: Record<string, number> = {}
 
@@ -30,7 +30,7 @@ export const priceStore = {
   /**
    * Define overrides de preço do admin (ex: XAUUSD → 4600).
    * A simulação de 2s usa estes valores como base, garantindo flutuação realista.
-   * O Finnhub NÃO sobrepõe assets com override activo.
+   * O Alpha Vantage NÃO sobrepõe assets com override activo.
    */
   setAdminOverrides(prices: Record<string, number>) {
     // Limpar overrides removidos e actualizar novos

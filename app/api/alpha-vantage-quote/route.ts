@@ -3,11 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 const ALPHA_VANTAGE_API_KEY = "70LHTSY4QJV4SYE5";
 const BASE = "https://www.alphavantage.co/query";
 
-/** Detect which Alpha Vantage function to use based on symbol prefix */
-function detectType(symbol: string): "GLOBAL_QUOTE" {
-  return "GLOBAL_QUOTE";
-}
-
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const symbol = searchParams.get("symbol");
@@ -36,7 +31,7 @@ export async function GET(req: NextRequest) {
       },
     );
   } catch (err) {
-    console.error("[alpha-vantage-candles]", err);
+    console.error("[alpha-vantage-quote]", err);
     return NextResponse.json({ bars: [] });
   }
 }

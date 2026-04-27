@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useRef, useCallback } from "react"
 import {
@@ -20,7 +20,7 @@ interface Bar {
 }
 
 interface LiveTradingChartProps {
-  finnhubSymbol: string
+  marketSymbol: string
   interval: string
   currentPrice: number
   digits?: number
@@ -28,7 +28,7 @@ interface LiveTradingChartProps {
 }
 
 /**
- * Gera candles sintéticos realistas quando a Finnhub não retorna histórico
+ * Gera candles sintéticos realistas quando a Alpha Vantage não retorna histórico
  * (ex: pares forex/metais no plano gratuito).
  * Usa o preço actual como ponto de ancoragem e simula volatilidade coerente
  * com o intervalo pedido.
@@ -75,7 +75,7 @@ function generateSyntheticCandles(currentPrice: number, interval: string): Bar[]
   return bars
 }
 
-/** Map UI intervals → Finnhub resolution (240 unsupported, use 60) */
+/** Map UI intervals → Alpha Vantage resolution (240 unsupported, use 60) */
 const RESOLUTION_MAP: Record<string, string> = {
   "1": "1",
   "5": "5",
@@ -88,7 +88,7 @@ const RESOLUTION_MAP: Record<string, string> = {
 }
 
 export default function LiveTradingChart({
-  finnhubSymbol,
+  marketSymbol,
   interval,
   currentPrice,
   digits = 2,
@@ -166,7 +166,7 @@ export default function LiveTradingChart({
       ;(chart as unknown as { _ro?: ResizeObserver })._ro = ro
 
       // Buscar dados imediatamente após criar o chart
-      doFetch(series, finnhubSymbolRef.current, intervalRef.current)
+      doFetch(series, marketSymbolRef.current, intervalRef.current)
     })
 
     return () => {
@@ -183,9 +183,9 @@ export default function LiveTradingChart({
   }, [])
 
   // Refs para garantir valores actuais dentro de doFetch sem precisar de deps
-  const finnhubSymbolRef = useRef(finnhubSymbol)
+  const marketSymbolRef = useRef(marketSymbol)
   const intervalRef = useRef(interval)
-  useEffect(() => { finnhubSymbolRef.current = finnhubSymbol }, [finnhubSymbol])
+  useEffect(() => { marketSymbolRef.current = marketSymbol }, [marketSymbol])
   useEffect(() => { intervalRef.current = interval }, [interval])
 
   // ── Fetch de candles (recebe series explicitamente para evitar race condition) ─
@@ -194,15 +194,15 @@ export default function LiveTradingChart({
     sym: string,
     res: string,
   ) => {
-    const finnhubRes = RESOLUTION_MAP[res] ?? "D"
+    const resolution = RESOLUTION_MAP[res] ?? "D"
     try {
       const r = await fetch(
-        `/api/finnhub-candles?symbol=${encodeURIComponent(sym)}&resolution=${finnhubRes}`,
+        `/api/alpha-vantage-quote?symbol=${encodeURIComponent(sym)}&resolution=${resolution}`,
         { cache: "no-store" },
       )
       const json = await r.json()
 
-      // Se Finnhub não retornou dados (plano free não suporta forex/metais),
+      // Se Alpha Vantage não retornou dados (plano free não suporta forex/metais),
       // gera candles sintéticos ancorados no preço actual
       const sourceBars: Bar[] = (json.bars?.length > 0)
         ? (json.bars as Bar[])
@@ -251,8 +251,8 @@ export default function LiveTradingChart({
   useEffect(() => {
     if (!seriesRef.current) return
     lastBarRef.current = null
-    doFetch(seriesRef.current, finnhubSymbol, interval)
-  }, [finnhubSymbol, interval, doFetch])
+    doFetch(seriesRef.current, marketSymbol, interval)
+  }, [marketSymbol, interval, doFetch])
 
   // ── Actualização real-time ────────────────────────────────────────────────────
   useEffect(() => {

@@ -18,13 +18,13 @@ import { tradeStore } from "@/lib/trade-store";
 import { supabase } from "@/lib/supabase";
 import { profileStore } from "@/lib/profile-store";
 
-const FINNHUB_TOKEN = "KSA1gzO1nFSBTe4hKfw0KJvJQhhx_E_e";
+const ALPHA_VANTAGE_API_KEY = "70LHTSY4QJV4SYE5";
 
 interface MarketItem {
   symbol: string;
   assetId: string;
   name: string;
-  finnhubSymbol: string;
+  marketSymbol: string;
   tvSymbol: string;
   basePrice: number;
   digits: number;
@@ -35,7 +35,7 @@ const MARKET_ITEMS: MarketItem[] = [
     symbol: "EURUSD",
     assetId: "eurusd",
     name: "Euro / Dolar americano",
-    finnhubSymbol: "OANDA:EUR_USD",
+    marketSymbol: "OANDA:EUR_USD",
     tvSymbol: "OANDA:EURUSD",
     basePrice: 1.092,
     digits: 5,
@@ -44,7 +44,7 @@ const MARKET_ITEMS: MarketItem[] = [
     symbol: "GBPUSD",
     assetId: "gbpusd",
     name: "Libra / Dolar americano",
-    finnhubSymbol: "OANDA:GBP_USD",
+    marketSymbol: "OANDA:GBP_USD",
     tvSymbol: "OANDA:GBPUSD",
     basePrice: 1.2932,
     digits: 5,
@@ -53,7 +53,7 @@ const MARKET_ITEMS: MarketItem[] = [
     symbol: "XAUUSD",
     assetId: "xauusd",
     name: "Ouro / Dolar americano",
-    finnhubSymbol: "OANDA:XAU_USD",
+    marketSymbol: "OANDA:XAU_USD",
     tvSymbol: "OANDA:XAUUSD",
     basePrice: 3310.0,
     digits: 2,
@@ -62,7 +62,7 @@ const MARKET_ITEMS: MarketItem[] = [
     symbol: "BTCUSD",
     assetId: "btcusd",
     name: "Bitcoin / Dolar americano",
-    finnhubSymbol: "BINANCE:BTCUSDT",
+    marketSymbol: "BINANCE:BTCUSDT",
     tvSymbol: "BITSTAMP:BTCUSD",
     basePrice: 104500.0,
     digits: 2,
@@ -71,7 +71,7 @@ const MARKET_ITEMS: MarketItem[] = [
     symbol: "AAPL",
     assetId: "aapl",
     name: "Apple Inc.",
-    finnhubSymbol: "AAPL",
+    marketSymbol: "AAPL",
     tvSymbol: "NASDAQ:AAPL",
     basePrice: 214.5,
     digits: 2,
@@ -80,7 +80,7 @@ const MARKET_ITEMS: MarketItem[] = [
     symbol: "TSLA",
     assetId: "tsla",
     name: "Tesla Inc.",
-    finnhubSymbol: "TSLA",
+    marketSymbol: "TSLA",
     tvSymbol: "NASDAQ:TSLA",
     basePrice: 248.6,
     digits: 2,
@@ -89,7 +89,7 @@ const MARKET_ITEMS: MarketItem[] = [
     symbol: "NVDA",
     assetId: "nvda",
     name: "NVIDIA Corporation",
-    finnhubSymbol: "NVDA",
+    marketSymbol: "NVDA",
     tvSymbol: "NASDAQ:NVDA",
     basePrice: 112.4,
     digits: 2,
@@ -98,12 +98,22 @@ const MARKET_ITEMS: MarketItem[] = [
     symbol: "USDJPY",
     assetId: "usdjpy",
     name: "Dolar / Iene japones",
-    finnhubSymbol: "OANDA:USD_JPY",
+    marketSymbol: "OANDA:USD_JPY",
     tvSymbol: "OANDA:USDJPY",
     basePrice: 145.2,
     digits: 3,
   },
 ];
+
+async function fetchMarketItemPrice(item) {
+  const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(item.marketSymbol)}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data && data["Global Quote"] && data["Global Quote"]["05. price"]) {
+    return parseFloat(data["Global Quote"]["05. price"]);
+  }
+  return null;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -182,18 +192,15 @@ export default function DashboardPage() {
     let count = 0;
     MARKET_ITEMS.forEach(async (item) => {
       try {
-        const res = await fetch(
-          `https://finnhub.io/api/v1/quote?symbol=${item.finnhubSymbol}&token=${FINNHUB_TOKEN}`,
-        );
-        const data = await res.json();
-        if (data?.c && data.c > 0) {
+        const price = await fetchMarketItemPrice(item);
+        if (price > 0) {
           const chg =
-            data.dp ??
-            ((data.c - (data.pc ?? data.c)) / (data.pc ?? data.c)) * 100;
+            ((price - (item.basePrice ?? price)) / (item.basePrice ?? price)) *
+            100;
           setPrices((prev) => ({
             ...prev,
             [item.symbol]: {
-              price: data.c,
+              price,
               change: parseFloat(chg.toFixed(2)),
             },
           }));
