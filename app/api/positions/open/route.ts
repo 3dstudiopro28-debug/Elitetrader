@@ -17,17 +17,18 @@ function getAccessToken(req: NextRequest): string | null {
 
 type AccountRow = { id: string; balance: number };
 
-/** Busca a conta do utilizador — usa .limit(1) para tolerar múltiplas contas (ex: real+demo) */
 async function getAccount(
   sb: ReturnType<typeof createServerClient>,
   userId: string,
+  mode: "demo" | "real",
 ): Promise<AccountRow | null> {
   const { data, error } = await sb
     .from("accounts")
     .select("id, balance")
     .eq("user_id", userId)
-    .limit(1)
+    .eq("mode", mode)
     .maybeSingle();
+
   if (error) {
     console.error(
       "[getAccount] erro ao buscar conta:",
@@ -36,36 +37,34 @@ async function getAccount(
       error.code,
     );
   }
+
   return (data as AccountRow | null) ?? null;
 }
 
-/**
- * Busca a conta do utilizador ou cria uma nova se não existir.
- * Usa upsert para ser seguro contra race conditions e chaves duplicadas.
- */
 async function getOrCreateAccount(
   sb: ReturnType<typeof createServerClient>,
   userId: string,
+  mode: "demo" | "real",
   userEmail = "",
 ): Promise<AccountRow | null> {
-  // 1. Tentar buscar conta existente
-  const existing = await getAccount(sb, userId);
+  const existing = await getAccount(sb, userId, mode);
   if (existing) {
-    console.log(`[getOrCreateAccount] Conta encontrada para user ${userId}.`);
+    console.log(
+      `[getOrCreateAccount] Conta ${mode} encontrada para user ${userId}.`,
+    );
     return existing;
   }
 
-  console.log(
-    `[getOrCreateAccount] Conta não encontrada. A criar para user ${userId}...`,
+  const { error: profileErr } = await sb.from("profiles").upsert(
+    {
+      id: userId,
+      email: userEmail,
+      first_name: "",
+      last_name: "",
+    },
+    { onConflict: "id" },
   );
 
-  // 2. Garantir que o perfil existe (FK: accounts.user_id → profiles.id)
-  const { error: profileErr } = await sb
-    .from("profiles")
-    .upsert(
-      { id: userId, email: userEmail, name: "" },
-      { onConflict: "id", ignoreDuplicates: true },
-    );
   if (profileErr) {
     console.error(
       "[getOrCreateAccount] profile upsert error:",
@@ -75,17 +74,20 @@ async function getOrCreateAccount(
     );
   }
 
-  // 3. Upsert da conta — evita erro de chave duplicada (23505) em qualquer schema
+  const startingBalance = mode === "demo" ? 100_000 : 0;
+
   const { data, error: upsertErr } = await sb
     .from("accounts")
     .upsert(
       {
         user_id: userId,
-        balance: 1_000_000,
+        mode,
+        balance: startingBalance,
         leverage: 200,
         currency: "USD",
+        status: "active",
       },
-      { onConflict: "user_id", ignoreDuplicates: true },
+      { onConflict: "user_id,mode" },
     )
     .select("id, balance")
     .maybeSingle();
@@ -97,16 +99,16 @@ async function getOrCreateAccount(
       "| code:",
       upsertErr.code,
     );
-    // Último recurso: re-ler (pode existir com constraint diferente)
-    return await getAccount(sb, userId);
+    return await getAccount(sb, userId, mode);
   }
 
-  // Com ignoreDuplicates=true, se já existia não retorna dados — re-ler
   if (!data) {
-    return await getAccount(sb, userId);
+    return await getAccount(sb, userId, mode);
   }
 
-  console.log(`[getOrCreateAccount] Nova conta criada para user ${userId}.`);
+  console.log(
+    `[getOrCreateAccount] Nova conta ${mode} criada para user ${userId}.`,
+  );
   return (data as AccountRow | null) ?? null;
 }
 
@@ -141,11 +143,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
+    const mode: "demo" | "real" = body.mode === "demo" ? "demo" : "real";
     const posData = {
       id: body.id ?? crypto.randomUUID(),
       symbol: body.symbol ?? "",
       asset_name: body.name ?? body.assetId ?? "",
-      mode: body.mode === "demo" ? "demo" : "real",
+      mode,
       type: body.type ?? "buy",
       lots: body.lots ?? 1,
       amount: body.amount ?? 0,
@@ -180,6 +183,7 @@ export async function POST(req: NextRequest) {
           const account = await getOrCreateAccount(
             sb,
             user.id,
+            posData.mode,
             user.email ?? "",
           );
 
@@ -214,10 +218,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (!dbSaved) {
+      return NextResponse.json(
+        {
+          success: false,
+          dbSaved: false,
+          error: dbError ?? "Falha ao persistir posição no Supabase",
+        },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json({
       success: true,
-      dbSaved,
-      dbError,
+      dbSaved: true,
+      dbError: null,
       data: { ...posData, openedAt: posData.opened_at },
     });
   } catch {
@@ -232,7 +247,8 @@ export async function DELETE(req: NextRequest) {
   const token = getAccessToken(req);
 
   try {
-    const { positionId, closePrice, pnl, closeReason } = await req.json();
+    const { positionId, closePrice, pnl, closeReason, mode } = await req.json();
+    const accountMode: "demo" | "real" = mode === "demo" ? "demo" : "real";
 
     // Fechar no Supabase se autenticado
     if (token && positionId) {
@@ -269,7 +285,7 @@ export async function DELETE(req: NextRequest) {
 
           // Reflectir PnL no saldo da conta (sem filtro de modo)
           if (typeof pnl === "number" && pnl !== 0) {
-            const account = await getAccount(sb, user.id);
+            const account = await getAccount(sb, user.id, accountMode);
             if (account) {
               await sb
                 .from("accounts")

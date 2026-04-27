@@ -132,17 +132,35 @@ export default function DashboardLayout({
       try {
         const currentMode = localStorage.getItem("et_account_mode") ?? "real";
         const authHeaders = await getAuthToken();
-        const response = await fetch(
-          `/api/positions?status=open&mode=${encodeURIComponent(currentMode)}`,
-          {
-            credentials: "include",
-            cache: "no-store",
-            headers: {
-              ...authHeaders,
-              "Cache-Control": "no-cache", // Força busca fresca do servidor
+        const fetchOpenPositions = async (mode: "demo" | "real") => {
+          const response = await fetch(
+            `/api/positions?status=open&mode=${encodeURIComponent(mode)}`,
+            {
+              credentials: "include",
+              cache: "no-store",
+              headers: {
+                ...authHeaders,
+                "Cache-Control": "no-cache",
+              },
             },
-          },
-        );
+          );
+
+          if (!response.ok) {
+            return { response, data: null as Record<string, unknown>[] | null };
+          }
+
+          const json = await response.json();
+          return {
+            response,
+            data: Array.isArray(json.data)
+              ? (json.data as Record<string, unknown>[])
+              : null,
+          };
+        };
+
+        let activeMode: "demo" | "real" =
+          currentMode === "demo" ? "demo" : "real";
+        let { response, data } = await fetchOpenPositions(activeMode);
 
         console.log(
           `✅ [SYNC] PASSO 2: API respondeu com status ${response.status}`,
@@ -153,17 +171,36 @@ export default function DashboardLayout({
           return;
         }
 
-        const json = await response.json();
+        if (Array.isArray(data) && data.length === 0) {
+          const fallbackMode: "demo" | "real" =
+            activeMode === "demo" ? "real" : "demo";
+          const fallback = await fetchOpenPositions(fallbackMode);
+          if (
+            fallback.response.ok &&
+            Array.isArray(fallback.data) &&
+            fallback.data.length > 0
+          ) {
+            localStorage.setItem("et_account_mode", fallbackMode);
+            activeMode = fallbackMode;
+            response = fallback.response;
+            data = fallback.data;
+            console.log(
+              `ℹ️ [SYNC] Nenhuma posição em ${currentMode}; modo alterado para ${fallbackMode}.`,
+            );
+          }
+        }
+
         console.log("📊 [SYNC] PASSO 3: Dados recebidos da API:", {
-          count: json.data?.length ?? 0,
-          hasData: json.data && Array.isArray(json.data),
-          positions: json.data,
+          mode: activeMode,
+          count: data?.length ?? 0,
+          hasData: Array.isArray(data),
+          positions: data,
         });
 
-        if (json.data && Array.isArray(json.data)) {
-          tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
+        if (Array.isArray(data)) {
+          tradeStore.loadOpenPositions(data);
           console.log(
-            `✅ [SYNC] PASSO 4: ${json.data.length} posições carregadas com sucesso`,
+            `✅ [SYNC] PASSO 4: ${data.length} posições carregadas com sucesso no modo ${activeMode}`,
           );
         } else {
           console.warn("⚠️ [SYNC] API não retornou array válido em 'data'");
@@ -303,19 +340,39 @@ export default function DashboardLayout({
 
     async function pollOpenPositions() {
       try {
-        const currentMode = localStorage.getItem("et_account_mode") ?? "real";
-        console.log(
-          `[dashboard] A chamar a API correta: /api/positions?status=open&mode=${currentMode}`,
-        );
         const authHeaders = await getAuthToken();
-        const response = await fetch(
-          `/api/positions?status=open&mode=${encodeURIComponent(currentMode)}`,
-          {
-            credentials: "include",
-            cache: "no-store",
-            headers: authHeaders,
-          },
-        );
+        const fetchOpenPositions = async (mode: "demo" | "real") => {
+          console.log(
+            `[dashboard] A chamar a API correta: /api/positions?status=open&mode=${mode}`,
+          );
+          const response = await fetch(
+            `/api/positions?status=open&mode=${encodeURIComponent(mode)}`,
+            {
+              credentials: "include",
+              cache: "no-store",
+              headers: authHeaders,
+            },
+          );
+
+          if (!response.ok) {
+            return { response, data: null as Record<string, unknown>[] | null };
+          }
+
+          const json = await response.json();
+          return {
+            response,
+            data: Array.isArray(json.data)
+              ? (json.data as Record<string, unknown>[])
+              : null,
+          };
+        };
+
+        let activeMode: "demo" | "real" =
+          (localStorage.getItem("et_account_mode") ?? "real") === "demo"
+            ? "demo"
+            : "real";
+
+        let { response, data } = await fetchOpenPositions(activeMode);
 
         if (!response.ok) {
           console.warn(
@@ -325,11 +382,25 @@ export default function DashboardLayout({
           return;
         }
 
-        const json = await response.json();
-        if (json.data && Array.isArray(json.data)) {
-          tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
+        if (Array.isArray(data) && data.length === 0) {
+          const fallbackMode: "demo" | "real" =
+            activeMode === "demo" ? "real" : "demo";
+          const fallback = await fetchOpenPositions(fallbackMode);
+          if (
+            fallback.response.ok &&
+            Array.isArray(fallback.data) &&
+            fallback.data.length > 0
+          ) {
+            localStorage.setItem("et_account_mode", fallbackMode);
+            activeMode = fallbackMode;
+            data = fallback.data;
+          }
+        }
+
+        if (Array.isArray(data)) {
+          tradeStore.loadOpenPositions(data);
           console.log(
-            `[dashboard] Sincronização concluída. ${json.data.length} posições carregadas.`,
+            `[dashboard] Sincronização concluída. ${data.length} posições carregadas no modo ${activeMode}.`,
           );
         }
       } catch (e) {
