@@ -159,6 +159,17 @@ export const tradeStore = {
           // Função de persistência com retry e backoff exponencial
           const persistWithRetry = async (attempt = 1, maxAttempts = 3) => {
             try {
+              console.log(
+                `[tradeStore] 🔄 Tentativa ${attempt}/${maxAttempts} - Enviando para API:`,
+                {
+                  id: full.id,
+                  symbol: full.symbol,
+                  amount: full.amount,
+                  type: full.type,
+                  mode,
+                },
+              );
+
               const response = await fetch("/api/positions/open", {
                 method: "POST",
                 headers: {
@@ -169,16 +180,31 @@ export const tradeStore = {
                 body: JSON.stringify({ ...full, mode }),
               });
 
+              const result = await response.json();
+              console.log("[tradeStore] 📥 Resposta da API:", result);
+
               if (!response.ok) {
                 throw new Error(
                   `HTTP ${response.status}: ${response.statusText}`,
                 );
               }
 
-              console.log(
-                "[tradeStore] ✅ Posição persistida no Supabase:",
-                full.id,
-              );
+              // ✅ VERIFICAR SE REALMENTE SALVOU NO DB
+              if (result.dbSaved === true) {
+                console.log(
+                  "[tradeStore] ✅ Posição CONFIRMADA no Supabase:",
+                  full.id,
+                );
+              } else {
+                console.error("[tradeStore] ❌ FALHA no Supabase:", {
+                  id: full.id,
+                  dbSaved: result.dbSaved,
+                  dbError: result.dbError,
+                });
+                throw new Error(
+                  `DB save failed: ${result.dbError || "unknown"}`,
+                );
+              }
             } catch (error) {
               console.error(
                 `[tradeStore] ⚠️ Tentativa ${attempt}/${maxAttempts} falhou:`,
