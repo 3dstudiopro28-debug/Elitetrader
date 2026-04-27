@@ -58,8 +58,6 @@ const MARKET_SYMBOL_MAP: Record<string, string> = {
   gld: "GLD",
 };
 
-const ALPHA_VANTAGE_API_KEY = "70LHTSY4QJV4SYE5";
-
 function fmt(n: number) {
   return n.toLocaleString("pt-PT", {
     minimumFractionDigits: 2,
@@ -476,31 +474,37 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       // displayPrices — fallback d.pc quando mercado fechado. Usados só para equity/display.
       const livePrices: Record<string, number> = {};
       const displayPrices: Record<string, number> = {};
-      await Promise.all(
-        open.map(async (pos) => {
-          // Assets com override admin não são actualizados pelo Finnhub
-          // (o admin controla o preço — respeitamos o valor definido)
-          if (priceStore.getAdminOverride(pos.assetId) !== null) return;
-          const sym = MARKET_SYMBOL_MAP[pos.assetId];
-          if (!sym) return;
-          try {
-            const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(sym)}&apikey=${ALPHA_VANTAGE_API_KEY}`;
-            const res = await fetch(url);
+
+      // Agrupar símbolos por lote de 5 (limite da proxy /api/alpha-vantage-prices)
+      const entries = open
+        .filter(
+          (pos) =>
+            priceStore.getAdminOverride(pos.assetId) === null &&
+            !!MARKET_SYMBOL_MAP[pos.assetId],
+        )
+        .map((pos) => ({ assetId: pos.assetId, sym: MARKET_SYMBOL_MAP[pos.assetId] }));
+
+      // Uma única chamada à proxy interna (max 5 símbolos)
+      const syms = entries.map((e) => e.sym).slice(0, 5);
+      if (syms.length) {
+        try {
+          const res = await fetch(
+            `/api/alpha-vantage-prices?symbols=${encodeURIComponent(syms.join(","))}`,
+            { cache: "no-store" },
+          );
+          if (res.ok) {
             const data = await res.json();
-            if (
-              data &&
-              data["Global Quote"] &&
-              data["Global Quote"]["05. price"]
-            ) {
-              livePrices[pos.assetId] = parseFloat(
-                data["Global Quote"]["05. price"],
-              );
+            for (const { assetId, sym } of entries) {
+              const price = (data.prices as Record<string, number | null>)[sym];
+              if (typeof price === "number" && price > 0) {
+                livePrices[assetId] = price;
+              }
             }
-          } catch {
-            /* silent */
           }
-        }),
-      );
+        } catch {
+          /* silent */
+        }
+      }
       if (dead) return;
       // Actualizar cache partilhado — portfolio e sidebar subscrevem (usa displayPrices)
       priceStore.set(displayPrices);

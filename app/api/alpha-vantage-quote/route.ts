@@ -3,19 +3,12 @@ import { NextResponse } from "next/server";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get("symbol");
-  const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+  const apiKey = process.env.ALPHA_VANTAGE_API_KEY ?? "70LHTSY4QJV4SYE5";
 
   if (!symbol) {
     return NextResponse.json(
       { error: "Símbolo (symbol) é obrigatório" },
       { status: 400 },
-    );
-  }
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Chave da API da Alpha Vantage não configurada no servidor" },
-      { status: 500 },
     );
   }
 

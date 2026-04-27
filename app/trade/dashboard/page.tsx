@@ -18,8 +18,6 @@ import { tradeStore } from "@/lib/trade-store";
 import { supabase } from "@/lib/supabase";
 import { profileStore } from "@/lib/profile-store";
 
-const ALPHA_VANTAGE_API_KEY = "70LHTSY4QJV4SYE5";
-
 interface MarketItem {
   symbol: string;
   assetId: string;
@@ -105,14 +103,19 @@ const MARKET_ITEMS: MarketItem[] = [
   },
 ];
 
-async function fetchMarketItemPrice(item) {
-  const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(item.marketSymbol)}&apikey=${ALPHA_VANTAGE_API_KEY}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (data && data["Global Quote"] && data["Global Quote"]["05. price"]) {
-    return parseFloat(data["Global Quote"]["05. price"]);
+async function fetchMarketItemPrice(item: MarketItem): Promise<number | null> {
+  try {
+    const res = await fetch(
+      `/api/alpha-vantage-prices?symbols=${encodeURIComponent(item.marketSymbol)}`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const price = (data.prices as Record<string, number | null>)?.[item.marketSymbol];
+    return typeof price === "number" && price > 0 ? price : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export default function DashboardPage() {
@@ -193,14 +196,14 @@ export default function DashboardPage() {
     MARKET_ITEMS.forEach(async (item) => {
       try {
         const price = await fetchMarketItemPrice(item);
-        if (price > 0) {
+        if (price !== null && price > 0) {
           const chg =
             ((price - (item.basePrice ?? price)) / (item.basePrice ?? price)) *
             100;
           setPrices((prev) => ({
             ...prev,
             [item.symbol]: {
-              price,
+              price: price,
               change: parseFloat(chg.toFixed(2)),
             },
           }));

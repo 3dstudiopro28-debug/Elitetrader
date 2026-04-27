@@ -117,8 +117,6 @@ function getCurrentBalance(): number {
   return (dbBal ?? DEMO_START_BALANCE) + realized;
 }
 
-const ALPHA_VANTAGE_API_KEY = "70LHTSY4QJV4SYE5";
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 type AssetCategory =
   | "all"
