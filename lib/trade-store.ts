@@ -3,6 +3,34 @@
 const MODE_KEY = "et_account_mode";
 const EVENT_NAME = "et-trade-update";
 
+const PRESERVED_LOGOUT_PREFIXES = [
+  "et_open_positions_",
+  "et_closed_positions_",
+  "et_pending_orders_",
+];
+
+export function preserveTradingDataOnLogout() {
+  if (typeof window === "undefined") return;
+
+  const backup: Record<string, string> = {};
+  Object.keys(localStorage).forEach((key) => {
+    if (
+      key === MODE_KEY ||
+      key === "et_session_user_id" ||
+      PRESERVED_LOGOUT_PREFIXES.some((prefix) => key.startsWith(prefix))
+    ) {
+      const value = localStorage.getItem(key);
+      if (value !== null) backup[key] = value;
+    }
+  });
+
+  localStorage.clear();
+
+  Object.entries(backup).forEach(([key, value]) => {
+    localStorage.setItem(key, value);
+  });
+}
+
 /** Returns storage keys scoped to the current account mode (demo | real) */
 function keys() {
   const m =
@@ -143,21 +171,97 @@ export const tradeStore = {
     list.unshift(full);
     write(keys().open, list);
 
-    // Persistir no Supabase em background (fire-and-forget)
+    // ✅ CORREÇÃO: Persistir no Supabase com retry para garantir sincronização
     if (typeof window !== "undefined") {
       const mode = localStorage.getItem(MODE_KEY) ?? "real";
       import("@/lib/supabase").then(({ supabase }) => {
         supabase.auth.getSession().then(({ data: { session } }) => {
-          if (!session?.access_token) return;
-          fetch("/api/positions/open", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            credentials: "include",
-            body: JSON.stringify({ ...full, mode }),
-          }).catch(() => {});
+          if (!session?.access_token) {
+            console.warn(
+              "[tradeStore] ⚠️ Sem sessão ativa. Posição salva apenas em localStorage:",
+              full.id,
+            );
+            return;
+          }
+
+          // Função de persistência com retry e backoff exponencial
+          const persistWithRetry = async (attempt = 1, maxAttempts = 3) => {
+            try {
+              console.log(
+                `[tradeStore] 🔄 Tentativa ${attempt}/${maxAttempts} - Enviando para API:`,
+                {
+                  id: full.id,
+                  symbol: full.symbol,
+                  amount: full.amount,
+                  type: full.type,
+                  mode,
+                },
+              );
+
+              const response = await fetch("/api/positions/open", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${session.access_token}`,
+                },
+                credentials: "include",
+                body: JSON.stringify({ ...full, mode }),
+              });
+
+              const result = await response.json();
+              console.log("[tradeStore] 📥 Resposta da API:", result);
+
+              if (!response.ok) {
+                throw new Error(
+                  `HTTP ${response.status}: ${response.statusText}`,
+                );
+              }
+
+              // ✅ VERIFICAR SE REALMENTE SALVOU NO DB
+              if (result.dbSaved === true) {
+                console.log(
+                  "[tradeStore] ✅ Posição CONFIRMADA no Supabase:",
+                  full.id,
+                );
+              } else {
+                console.error("[tradeStore] ❌ FALHA no Supabase:", {
+                  id: full.id,
+                  dbSaved: result.dbSaved,
+                  dbError: result.dbError,
+                });
+                throw new Error(
+                  `DB save failed: ${result.dbError || "unknown"}`,
+                );
+              }
+            } catch (error) {
+              console.error(
+                `[tradeStore] ⚠️ Tentativa ${attempt}/${maxAttempts} falhou:`,
+                error,
+              );
+
+              if (attempt < maxAttempts) {
+                // Retry com backoff exponencial: 2s, 4s, 8s
+                const delay = Math.pow(2, attempt) * 1000;
+                console.log(
+                  `[tradeStore] 🔄 Tentando novamente em ${delay}ms...`,
+                );
+                setTimeout(
+                  () => persistWithRetry(attempt + 1, maxAttempts),
+                  delay,
+                );
+              } else {
+                console.error(
+                  "[tradeStore] ❌ FALHA CRÍTICA: Posição NÃO foi persistida no servidor:",
+                  full.id,
+                );
+                console.error(
+                  "[tradeStore] ℹ️ A posição permanece em localStorage e será sincronizada no próximo login.",
+                );
+              }
+            }
+          };
+
+          persistWithRetry();
         });
       });
     }

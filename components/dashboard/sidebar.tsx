@@ -33,7 +33,7 @@ import {
   DEMO_START_BALANCE,
 } from "@/lib/account-store";
 import { profileStore } from "@/lib/profile-store";
-import { tradeStore } from "@/lib/trade-store";
+import { preserveTradingDataOnLogout, tradeStore } from "@/lib/trade-store";
 
 const DEMO_ID_KEY = "et_demo_account_id";
 const REAL_ID_KEY = "et_real_account_id";
@@ -231,7 +231,8 @@ export function DashboardSidebar({
   }
 
   const handleLogout = useCallback(async () => {
-    if (typeof window !== "undefined") localStorage.clear();
+    preserveTradingDataOnLogout();
+
     try {
       await supabase.auth.signOut();
     } catch {

@@ -15,57 +15,153 @@ function getAccessToken(req: NextRequest): string | null {
   return null;
 }
 
+function hasMissingColumn(
+  err: unknown,
+  column: "mode" | "status" | "asset",
+): boolean {
+  const msg =
+    typeof err === "object" && err && "message" in err
+      ? String((err as { message?: unknown }).message ?? "")
+      : "";
+  const code =
+    typeof err === "object" && err && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  return (
+    code === "42703" &&
+    new RegExp(`column .*${column}|${column} does not exist`, "i").test(msg)
+  );
+}
+
+function getNullConstraintColumn(err: unknown): string | null {
+  const msg =
+    typeof err === "object" && err && "message" in err
+      ? String((err as { message?: unknown }).message ?? "")
+      : "";
+  const m = msg.match(/null value in column "([^"]+)"/i);
+  return m?.[1] ?? null;
+}
+
+function applyDefaultForRequiredColumn(
+  payload: Record<string, unknown>,
+  col: string,
+): boolean {
+  switch (col) {
+    case "asset":
+      payload.asset =
+        payload.asset ?? payload.symbol ?? payload.asset_name ?? "UNKNOWN";
+      return true;
+    case "quantity":
+      payload.quantity = payload.quantity ?? payload.lots ?? 1;
+      return true;
+    case "position_type":
+      payload.position_type = payload.position_type ?? payload.type ?? "buy";
+      return true;
+    case "entry_price":
+      payload.entry_price = payload.entry_price ?? payload.open_price ?? 0;
+      return true;
+    case "price":
+      payload.price = payload.price ?? payload.open_price ?? 0;
+      return true;
+    case "direction":
+      payload.direction = payload.direction ?? payload.type ?? "buy";
+      return true;
+    case "volume":
+      payload.volume = payload.volume ?? payload.quantity ?? payload.lots ?? 1;
+      return true;
+    case "margin":
+      payload.margin = payload.margin ?? payload.amount ?? 0;
+      return true;
+    case "profit_loss":
+      payload.profit_loss = payload.profit_loss ?? 0;
+      return true;
+    case "created_at":
+      payload.created_at =
+        payload.created_at ?? payload.opened_at ?? new Date().toISOString();
+      return true;
+    case "updated_at":
+      payload.updated_at = new Date().toISOString();
+      return true;
+    default:
+      return false;
+  }
+}
+
 type AccountRow = { id: string; balance: number };
 
-/** Busca a conta do utilizador — usa .limit(1) para tolerar múltiplas contas (ex: real+demo) */
 async function getAccount(
   sb: ReturnType<typeof createServerClient>,
   userId: string,
+  mode: "demo" | "real",
 ): Promise<AccountRow | null> {
-  const { data, error } = await sb
+  const withMode = await sb
+    .from("accounts")
+    .select("id, balance")
+    .eq("user_id", userId)
+    .eq("mode", mode)
+    .maybeSingle();
+
+  if (!withMode.error) {
+    return (withMode.data as AccountRow | null) ?? null;
+  }
+
+  if (!hasMissingColumn(withMode.error, "mode")) {
+    console.error(
+      "[getAccount] erro ao buscar conta:",
+      withMode.error.message,
+      "| code:",
+      withMode.error.code,
+    );
+    return null;
+  }
+
+  console.warn(
+    "[getAccount] coluna mode ausente em accounts, a usar fallback sem filtro por modo.",
+  );
+  const fallback = await sb
     .from("accounts")
     .select("id, balance")
     .eq("user_id", userId)
     .limit(1)
     .maybeSingle();
-  if (error) {
+
+  if (fallback.error) {
     console.error(
-      "[getAccount] erro ao buscar conta:",
-      error.message,
+      "[getAccount] fallback sem mode falhou:",
+      fallback.error.message,
       "| code:",
-      error.code,
+      fallback.error.code,
     );
+    return null;
   }
-  return (data as AccountRow | null) ?? null;
+
+  return (fallback.data as AccountRow | null) ?? null;
 }
 
-/**
- * Busca a conta do utilizador ou cria uma nova se não existir.
- * Usa upsert para ser seguro contra race conditions e chaves duplicadas.
- */
 async function getOrCreateAccount(
   sb: ReturnType<typeof createServerClient>,
   userId: string,
+  mode: "demo" | "real",
   userEmail = "",
 ): Promise<AccountRow | null> {
-  // 1. Tentar buscar conta existente
-  const existing = await getAccount(sb, userId);
+  const existing = await getAccount(sb, userId, mode);
   if (existing) {
-    console.log(`[getOrCreateAccount] Conta encontrada para user ${userId}.`);
+    console.log(
+      `[getOrCreateAccount] Conta ${mode} encontrada para user ${userId}.`,
+    );
     return existing;
   }
 
-  console.log(
-    `[getOrCreateAccount] Conta não encontrada. A criar para user ${userId}...`,
+  const { error: profileErr } = await sb.from("profiles").upsert(
+    {
+      id: userId,
+      email: userEmail,
+      first_name: "",
+      last_name: "",
+    },
+    { onConflict: "id" },
   );
 
-  // 2. Garantir que o perfil existe (FK: accounts.user_id → profiles.id)
-  const { error: profileErr } = await sb
-    .from("profiles")
-    .upsert(
-      { id: userId, email: userEmail, name: "" },
-      { onConflict: "id", ignoreDuplicates: true },
-    );
   if (profileErr) {
     console.error(
       "[getOrCreateAccount] profile upsert error:",
@@ -75,20 +171,45 @@ async function getOrCreateAccount(
     );
   }
 
-  // 3. Upsert da conta — evita erro de chave duplicada (23505) em qualquer schema
-  const { data, error: upsertErr } = await sb
+  const startingBalance = mode === "demo" ? 100_000 : 0;
+
+  const accountPayload = {
+    user_id: userId,
+    mode,
+    balance: startingBalance,
+    leverage: 200,
+    currency: "USD",
+    status: "active",
+  };
+
+  let { data, error: upsertErr } = await sb
     .from("accounts")
-    .upsert(
-      {
-        user_id: userId,
-        balance: 1_000_000,
-        leverage: 200,
-        currency: "USD",
-      },
-      { onConflict: "user_id", ignoreDuplicates: true },
-    )
+    .upsert(accountPayload, { onConflict: "user_id,mode" })
     .select("id, balance")
     .maybeSingle();
+
+  if (
+    upsertErr &&
+    (hasMissingColumn(upsertErr, "mode") ||
+      hasMissingColumn(upsertErr, "status"))
+  ) {
+    console.warn(
+      "[getOrCreateAccount] schema antigo em accounts (mode/status ausente), a usar fallback de insert sem colunas opcionais.",
+    );
+    const fallbackInsert = await sb
+      .from("accounts")
+      .insert({
+        user_id: userId,
+        balance: startingBalance,
+        leverage: 200,
+        currency: "USD",
+      })
+      .select("id, balance")
+      .maybeSingle();
+
+    data = fallbackInsert.data;
+    upsertErr = fallbackInsert.error;
+  }
 
   if (upsertErr) {
     console.error(
@@ -97,16 +218,16 @@ async function getOrCreateAccount(
       "| code:",
       upsertErr.code,
     );
-    // Último recurso: re-ler (pode existir com constraint diferente)
-    return await getAccount(sb, userId);
+    return await getAccount(sb, userId, mode);
   }
 
-  // Com ignoreDuplicates=true, se já existia não retorna dados — re-ler
   if (!data) {
-    return await getAccount(sb, userId);
+    return await getAccount(sb, userId, mode);
   }
 
-  console.log(`[getOrCreateAccount] Nova conta criada para user ${userId}.`);
+  console.log(
+    `[getOrCreateAccount] Nova conta ${mode} criada para user ${userId}.`,
+  );
   return (data as AccountRow | null) ?? null;
 }
 
@@ -122,13 +243,39 @@ export async function GET(req: NextRequest) {
     } = await sb.auth.getUser(token);
     if (authErr || !user) return NextResponse.json({ success: true, data: [] });
 
-    // Consulta directa por user_id — não depende da coluna mode em accounts
-    const { data: positions } = await sb
+    const modeParam = req.nextUrl.searchParams.get("mode");
+    const mode: "demo" | "real" | null =
+      modeParam === "demo" || modeParam === "real" ? modeParam : null;
+
+    let query = sb
       .from("positions")
       .select("*")
       .eq("user_id", user.id)
       .eq("status", "open")
       .order("opened_at", { ascending: false });
+
+    if (mode) {
+      query = query.eq("mode", mode);
+    }
+
+    let { data: positions, error } = await query;
+
+    if (error && mode && hasMissingColumn(error, "mode")) {
+      const fallback = await sb
+        .from("positions")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("status", "open")
+        .order("opened_at", { ascending: false });
+
+      positions = fallback.data;
+      error = fallback.error;
+    }
+
+    if (error) {
+      console.error("[GET /api/positions/open] error:", error.message);
+      return NextResponse.json({ success: true, data: [] });
+    }
 
     return NextResponse.json({ success: true, data: positions ?? [] });
   } catch {
@@ -141,12 +288,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
+    const mode: "demo" | "real" = body.mode === "demo" ? "demo" : "real";
     const posData = {
       id: body.id ?? crypto.randomUUID(),
+      asset: body.asset ?? body.symbol ?? body.assetId ?? "",
       symbol: body.symbol ?? "",
       asset_name: body.name ?? body.assetId ?? "",
+      mode,
       type: body.type ?? "buy",
       lots: body.lots ?? 1,
+      quantity: body.quantity ?? body.lots ?? 1,
       amount: body.amount ?? 0,
       leverage: body.leverage ?? 200,
       open_price: body.openPrice ?? 0,
@@ -179,6 +330,7 @@ export async function POST(req: NextRequest) {
           const account = await getOrCreateAccount(
             sb,
             user.id,
+            posData.mode,
             user.email ?? "",
           );
 
@@ -189,18 +341,65 @@ export async function POST(req: NextRequest) {
               user.id,
             );
           } else {
-            const { error: upsertErr } = await sb
-              .from("positions")
-              .upsert(
-                { ...posData, user_id: user.id },
-                { onConflict: "id", ignoreDuplicates: false },
-              );
+            const payloadWithMode: Record<string, unknown> = {
+              ...posData,
+              user_id: user.id,
+              account_id: account.id,
+            };
 
-            if (upsertErr) {
-              dbError = upsertErr.message;
+            let upsertResult: {
+              error: { message?: string; code?: string } | null;
+            } = { error: null };
+            let payload = { ...payloadWithMode };
+
+            for (let attempt = 0; attempt < 6; attempt++) {
+              upsertResult = await sb.from("positions").upsert(payload, {
+                onConflict: "id",
+                ignoreDuplicates: false,
+              });
+
+              if (!upsertResult.error) break;
+
+              if (
+                hasMissingColumn(upsertResult.error, "mode") &&
+                "mode" in payload
+              ) {
+                console.warn(
+                  "[POST /api/positions/open] coluna mode ausente em positions, nova tentativa sem mode.",
+                );
+                const { mode: _dropMode, ...rest } = payload;
+                payload = rest;
+                continue;
+              }
+
+              if (
+                hasMissingColumn(upsertResult.error, "asset") &&
+                "asset" in payload
+              ) {
+                console.warn(
+                  "[POST /api/positions/open] coluna asset ausente em positions, nova tentativa sem asset.",
+                );
+                const { asset: _dropAsset, ...rest } = payload;
+                payload = rest;
+                continue;
+              }
+
+              const nullCol = getNullConstraintColumn(upsertResult.error);
+              if (nullCol && applyDefaultForRequiredColumn(payload, nullCol)) {
+                console.warn(
+                  `[POST /api/positions/open] coluna obrigatória '${nullCol}' estava nula, nova tentativa com valor default.`,
+                );
+                continue;
+              }
+
+              break;
+            }
+
+            if (upsertResult.error) {
+              dbError = upsertResult.error.message ?? "unknown upsert error";
               console.error(
                 "[POST /api/positions/open] upsert error:",
-                upsertErr.message,
+                upsertResult.error.message,
               );
             } else {
               dbSaved = true;
@@ -213,10 +412,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (!dbSaved) {
+      return NextResponse.json(
+        {
+          success: false,
+          dbSaved: false,
+          error: dbError ?? "Falha ao persistir posição no Supabase",
+        },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json({
       success: true,
-      dbSaved,
-      dbError,
+      dbSaved: true,
+      dbError: null,
       data: { ...posData, openedAt: posData.opened_at },
     });
   } catch {
@@ -231,7 +441,8 @@ export async function DELETE(req: NextRequest) {
   const token = getAccessToken(req);
 
   try {
-    const { positionId, closePrice, pnl, closeReason } = await req.json();
+    const { positionId, closePrice, pnl, closeReason, mode } = await req.json();
+    const accountMode: "demo" | "real" = mode === "demo" ? "demo" : "real";
 
     // Fechar no Supabase se autenticado
     if (token && positionId) {
@@ -268,7 +479,7 @@ export async function DELETE(req: NextRequest) {
 
           // Reflectir PnL no saldo da conta (sem filtro de modo)
           if (typeof pnl === "number" && pnl !== 0) {
-            const account = await getAccount(sb, user.id);
+            const account = await getAccount(sb, user.id, accountMode);
             if (account) {
               await sb
                 .from("accounts")

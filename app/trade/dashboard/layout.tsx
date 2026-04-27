@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { supabase } from "@/lib/supabase";
-import { tradeStore } from "@/lib/trade-store";
+import { preserveTradingDataOnLogout, tradeStore } from "@/lib/trade-store";
 import { accountStore } from "@/lib/account-store";
 import { notificationStore } from "@/lib/notification-store";
 import type { GhostPayload } from "@/lib/ghost-pending-store";
@@ -99,17 +99,8 @@ export default function DashboardLayout({
       }
 
       if (event === "SIGNED_OUT") {
-        // Preservar o modo (demo/real) para o próximo login, apagar o resto.
         try {
-          const savedMode = localStorage.getItem("et_account_mode");
-          const keysToRemove = Object.keys(localStorage).filter(
-            (k) => k.startsWith("et_") && k !== "et_account_mode",
-          );
-          keysToRemove.forEach((k) => localStorage.removeItem(k));
-          // Restaurar modo se existia
-          if (savedMode === "demo" || savedMode === "real") {
-            localStorage.setItem("et_account_mode", savedMode);
-          }
+          preserveTradingDataOnLogout();
         } catch {
           /* ignore */
         }
@@ -124,52 +115,105 @@ export default function DashboardLayout({
     if (!ready) return;
 
     // ── Sync cross-device: buscar posições abertas do servidor ──────────────
+    // ✅ CORREÇÃO: Forçar busca fresca sem cache para garantir dados atualizados
     async function syncOpenPositionsFromDB() {
       console.log(
-        "PASSO 1: [FRONTEND] A função syncOpenPositionsFromDB foi chamada.",
+        "🔄 [SYNC] PASSO 1: Iniciando sincronização de posições abertas...",
       );
       try {
+        const currentMode = localStorage.getItem("et_account_mode") ?? "real";
         const authHeaders = await getAuthToken();
-        const response = await fetch("/api/positions?status=open", {
-          credentials: "include",
-          cache: "no-store",
-          headers: authHeaders,
-        });
+        const fetchOpenPositions = async (mode: "demo" | "real") => {
+          const response = await fetch(
+            `/api/positions?status=open&mode=${encodeURIComponent(mode)}`,
+            {
+              credentials: "include",
+              cache: "no-store",
+              headers: {
+                ...authHeaders,
+                "Cache-Control": "no-cache",
+              },
+            },
+          );
+
+          if (!response.ok) {
+            return { response, data: null as Record<string, unknown>[] | null };
+          }
+
+          const json = await response.json();
+          return {
+            response,
+            data: Array.isArray(json.data)
+              ? (json.data as Record<string, unknown>[])
+              : null,
+          };
+        };
+
+        let activeMode: "demo" | "real" =
+          currentMode === "demo" ? "demo" : "real";
+        let { response, data } = await fetchOpenPositions(activeMode);
 
         console.log(
-          `PASSO 2: [FRONTEND] A API respondeu com o status: ${response.status}`,
+          `✅ [SYNC] PASSO 2: API respondeu com status ${response.status}`,
         );
 
         if (!response.ok) {
-          console.error("Falha na resposta da API.");
+          console.error(`❌ [SYNC] Falha na API: HTTP ${response.status}`);
           return;
         }
 
-        const json = await response.json();
-        console.log(
-          "PASSO 3: [FRONTEND] A API retornou o seguinte JSON:",
-          json,
-        );
+        if (Array.isArray(data) && data.length === 0) {
+          const fallbackMode: "demo" | "real" =
+            activeMode === "demo" ? "real" : "demo";
+          const fallback = await fetchOpenPositions(fallbackMode);
+          if (
+            fallback.response.ok &&
+            Array.isArray(fallback.data) &&
+            fallback.data.length > 0
+          ) {
+            localStorage.setItem("et_account_mode", fallbackMode);
+            activeMode = fallbackMode;
+            response = fallback.response;
+            data = fallback.data;
+            console.log(
+              `ℹ️ [SYNC] Nenhuma posição em ${currentMode}; modo alterado para ${fallbackMode}.`,
+            );
+          }
+        }
 
-        if (json.data && Array.isArray(json.data)) {
-          tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
+        console.log("📊 [SYNC] PASSO 3: Dados recebidos da API:", {
+          mode: activeMode,
+          count: data?.length ?? 0,
+          hasData: Array.isArray(data),
+          positions: data,
+        });
+
+        if (Array.isArray(data)) {
+          tradeStore.loadOpenPositions(data);
+          console.log(
+            `✅ [SYNC] PASSO 4: ${data.length} posições carregadas com sucesso no modo ${activeMode}`,
+          );
         } else {
-          console.warn("O JSON da API não contém um array em `data`.");
+          console.warn("⚠️ [SYNC] API não retornou array válido em 'data'");
         }
       } catch (e) {
-        console.error("Erro catastrófico ao tentar sincronizar:", e);
+        console.error("❌ [SYNC] Erro crítico ao sincronizar posições:", e);
       }
     }
 
     // ── Sync cross-device: buscar histórico de posições fechadas ─────────────
     async function syncClosedPositionsFromDB() {
       try {
+        const currentMode = localStorage.getItem("et_account_mode") ?? "real";
         const authHeaders = await getAuthToken();
-        const response = await fetch("/api/positions?status=closed", {
-          credentials: "include",
-          cache: "no-store",
-          headers: authHeaders,
-        });
+        const response = await fetch(
+          `/api/positions?status=closed&mode=${encodeURIComponent(currentMode)}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+            headers: authHeaders,
+          },
+        );
         if (!response.ok) return;
         const json = await response.json();
         if (json.data && Array.isArray(json.data)) {
@@ -287,15 +331,39 @@ export default function DashboardLayout({
 
     async function pollOpenPositions() {
       try {
-        console.log(
-          "[dashboard] A chamar a API correta: /api/positions?status=open",
-        );
         const authHeaders = await getAuthToken();
-        const response = await fetch("/api/positions?status=open", {
-          credentials: "include",
-          cache: "no-store",
-          headers: authHeaders,
-        });
+        const fetchOpenPositions = async (mode: "demo" | "real") => {
+          console.log(
+            `[dashboard] A chamar a API correta: /api/positions?status=open&mode=${mode}`,
+          );
+          const response = await fetch(
+            `/api/positions?status=open&mode=${encodeURIComponent(mode)}`,
+            {
+              credentials: "include",
+              cache: "no-store",
+              headers: authHeaders,
+            },
+          );
+
+          if (!response.ok) {
+            return { response, data: null as Record<string, unknown>[] | null };
+          }
+
+          const json = await response.json();
+          return {
+            response,
+            data: Array.isArray(json.data)
+              ? (json.data as Record<string, unknown>[])
+              : null,
+          };
+        };
+
+        let activeMode: "demo" | "real" =
+          (localStorage.getItem("et_account_mode") ?? "real") === "demo"
+            ? "demo"
+            : "real";
+
+        let { response, data } = await fetchOpenPositions(activeMode);
 
         if (!response.ok) {
           console.warn(
@@ -305,11 +373,25 @@ export default function DashboardLayout({
           return;
         }
 
-        const json = await response.json();
-        if (json.data && Array.isArray(json.data)) {
-          tradeStore.loadOpenPositions(json.data as Record<string, unknown>[]);
+        if (Array.isArray(data) && data.length === 0) {
+          const fallbackMode: "demo" | "real" =
+            activeMode === "demo" ? "real" : "demo";
+          const fallback = await fetchOpenPositions(fallbackMode);
+          if (
+            fallback.response.ok &&
+            Array.isArray(fallback.data) &&
+            fallback.data.length > 0
+          ) {
+            localStorage.setItem("et_account_mode", fallbackMode);
+            activeMode = fallbackMode;
+            data = fallback.data;
+          }
+        }
+
+        if (Array.isArray(data)) {
+          tradeStore.loadOpenPositions(data);
           console.log(
-            `[dashboard] Sincronização concluída. ${json.data.length} posições carregadas.`,
+            `[dashboard] Sincronização concluída. ${data.length} posições carregadas no modo ${activeMode}.`,
           );
         }
       } catch (e) {

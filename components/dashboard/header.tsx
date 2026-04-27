@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
@@ -18,7 +18,7 @@ import {
   Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { tradeStore } from "@/lib/trade-store";
+import { preserveTradingDataOnLogout, tradeStore } from "@/lib/trade-store";
 import { accountStore, type AccountStats } from "@/lib/account-store";
 import { notificationStore, type Notification } from "@/lib/notification-store";
 import { priceStore } from "@/lib/price-store";
@@ -26,8 +26,7 @@ import { supabase } from "@/lib/supabase";
 import { profileStore } from "@/lib/profile-store";
 import { useT } from "@/lib/i18n";
 
-const FINNHUB_TOKEN = "KSA1gzO1nFSBTe4hKfw0KJvJQhhx_E_e";
-const FINNHUB_MAP: Record<string, string> = {
+const MARKET_SYMBOL_MAP: Record<string, string> = {
   eurusd: "OANDA:EUR_USD",
   eurgbp: "OANDA:EUR_GBP",
   usdjpy: "OANDA:USD_JPY",
@@ -475,32 +474,37 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       // displayPrices — fallback d.pc quando mercado fechado. Usados só para equity/display.
       const livePrices: Record<string, number> = {};
       const displayPrices: Record<string, number> = {};
-      await Promise.all(
-        open.map(async (pos) => {
-          // Assets com override admin não são actualizados pelo Finnhub
-          // (o admin controla o preço — respeitamos o valor definido)
-          if (priceStore.getAdminOverride(pos.assetId) !== null) return;
-          const sym = FINNHUB_MAP[pos.assetId];
-          if (!sym) return;
-          try {
-            const r = await fetch(
-              `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${FINNHUB_TOKEN}`,
-              { cache: "no-store" },
-            );
-            const d = await r.json();
-            if (d.c && d.c > 0) {
-              // Mercado aberto — preço real → TP/SL + display
-              livePrices[pos.assetId] = d.c;
-              displayPrices[pos.assetId] = d.c;
-            } else if (d.pc && d.pc > 0) {
-              // Mercado fechado — previous-close apenas para equity/display, NUNCA para TP/SL
-              displayPrices[pos.assetId] = d.pc;
+
+      // Agrupar símbolos por lote de 5 (limite da proxy /api/alpha-vantage-prices)
+      const entries = open
+        .filter(
+          (pos) =>
+            priceStore.getAdminOverride(pos.assetId) === null &&
+            !!MARKET_SYMBOL_MAP[pos.assetId],
+        )
+        .map((pos) => ({ assetId: pos.assetId, sym: MARKET_SYMBOL_MAP[pos.assetId] }));
+
+      // Uma única chamada à proxy interna (max 5 símbolos)
+      const syms = entries.map((e) => e.sym).slice(0, 5);
+      if (syms.length) {
+        try {
+          const res = await fetch(
+            `/api/alpha-vantage-prices?symbols=${encodeURIComponent(syms.join(","))}`,
+            { cache: "no-store" },
+          );
+          if (res.ok) {
+            const data = await res.json();
+            for (const { assetId, sym } of entries) {
+              const price = (data.prices as Record<string, number | null>)[sym];
+              if (typeof price === "number" && price > 0) {
+                livePrices[assetId] = price;
+              }
             }
-          } catch {
-            /* silent */
           }
-        }),
-      );
+        } catch {
+          /* silent */
+        }
+      }
       if (dead) return;
       // Actualizar cache partilhado — portfolio e sidebar subscrevem (usa displayPrices)
       priceStore.set(displayPrices);
@@ -767,8 +771,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
   }, [stats?.mode]);
 
   const handleLogout = useCallback(async () => {
-    // Limpar todos os dados locais
-    if (typeof window !== "undefined") localStorage.clear();
+    preserveTradingDataOnLogout();
     // Terminar sessão Supabase
     try {
       await supabase.auth.signOut();
