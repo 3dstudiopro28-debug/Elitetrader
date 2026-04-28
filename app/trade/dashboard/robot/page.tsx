@@ -274,7 +274,7 @@ export default function RobotPage() {
               className="robot-section-r"
               style={{
                 background:
-                  "linear-gradient(135deg, rgba(10,15,40,0.92), rgba(8,13,35,0.95))",
+                  "linear-gradient(135deg, rgba(5,8,22,0.97), rgba(3,6,18,0.98))",
                 border: "1px solid rgba(74,144,226,0.2)",
                 borderRadius: 12,
                 padding: "40px 30px",
@@ -374,7 +374,7 @@ export default function RobotPage() {
             <div
               style={{
                 background:
-                  "linear-gradient(135deg, rgba(10,15,40,0.92), rgba(8,13,35,0.95))",
+                  "linear-gradient(135deg, rgba(5,8,22,0.97), rgba(3,6,18,0.98))",
                 border: "1px solid rgba(74,144,226,0.2)",
                 borderRadius: 12,
                 padding: 30,
@@ -680,7 +680,7 @@ export default function RobotPage() {
                 key={card.title}
                 style={{
                   background:
-                    "linear-gradient(135deg, rgba(10,15,40,0.92), rgba(8,13,35,0.95))",
+                    "linear-gradient(135deg, rgba(5,8,22,0.97), rgba(3,6,18,0.98))",
                   border: "1px solid rgba(74,144,226,0.15)",
                   borderRadius: 12,
                   padding: 20,

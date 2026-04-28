@@ -167,7 +167,6 @@ export function NeuralNetworkBackground({ opacity = 0.45 }: Props) {
       // trail com cor que combina com o fundo escuro da página
       ctx.fillStyle = "rgba(10,14,39,0.22)";
       ctx.fillRect(0, 0, W, H);
-      drawMouseAura();
       connect();
       particles.forEach((p) => {
         p.update();
