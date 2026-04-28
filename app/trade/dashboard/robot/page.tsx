@@ -1,7 +1,8 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
+import { supabase } from "@/lib/supabase";
 
 // ─── Dot pulse loader ─────────────────────────────────────────────────────────
 function PulseDots() {
@@ -75,6 +76,23 @@ export default function RobotPage() {
   const [serial, setSerial] = useState("");
   const [status, setStatus] = useState<"idle" | "invalid">("idle");
   const [robotHovered, setRobotHovered] = useState(false);
+  const [userPhone, setUserPhone] = useState<string | null>(null);
+
+  // Buscar telefone do utilizador
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user?.id) return;
+      supabase
+        .from("profiles")
+        .select("phone")
+        .eq("id", session.user.id)
+        .single()
+        .then(({ data }) => {
+          if (data?.phone) setUserPhone(data.phone as string);
+        })
+        .catch(() => {});
+    });
+  }, []);
 
   function handleActivate() {
     if (!serial.trim()) return;
@@ -186,7 +204,7 @@ export default function RobotPage() {
 
       <div
         style={{
-          background: "#0a0e27",
+          background: "transparent",
           minHeight: "100%",
           padding: "24px 20px",
           color: "#e0e0e0",
@@ -313,6 +331,40 @@ export default function RobotPage() {
                     <span>✕</span> Token Inválido — Número de série não reconhecido
                   </div>
                 )}
+              </div>
+
+              {/* Contacto de notificações Elite-IA */}
+              <div
+                style={{
+                  background: "rgba(74,144,226,0.06)",
+                  border: "1px solid rgba(74,144,226,0.2)",
+                  borderRadius: 10,
+                  padding: "12px 14px",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 12,
+                }}
+              >
+                <div style={{ width: 32, height: 32, background: "rgba(74,144,226,0.15)", border: "1px solid rgba(74,144,226,0.4)", borderRadius: 6, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 16, flexShrink: 0 }}>
+                  📱
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ color: "#4a90e2", fontSize: 11, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 4 }}>
+                    Contacto para Mensagens Elite‑IA
+                  </p>
+                  {userPhone ? (
+                    <p style={{ color: "#e0e0e0", fontSize: 14, fontWeight: 600, fontFamily: "Courier New, monospace", letterSpacing: 1 }}>
+                      {userPhone}
+                    </p>
+                  ) : (
+                    <p style={{ color: "rgba(74,144,226,0.5)", fontSize: 12, fontStyle: "italic" }}>
+                      Sem número registado
+                    </p>
+                  )}
+                  <p style={{ color: "#8b92a9", fontSize: 11, marginTop: 3 }}>
+                    Número que irá receber todas as informações e sinais da IA
+                  </p>
+                </div>
               </div>
 
               {/* Activate button */}

@@ -163,24 +163,8 @@ export default function DashboardLayout({
           return;
         }
 
-        if (Array.isArray(data) && data.length === 0) {
-          const fallbackMode: "demo" | "real" =
-            activeMode === "demo" ? "real" : "demo";
-          const fallback = await fetchOpenPositions(fallbackMode);
-          if (
-            fallback.response.ok &&
-            Array.isArray(fallback.data) &&
-            fallback.data.length > 0
-          ) {
-            localStorage.setItem("et_account_mode", fallbackMode);
-            activeMode = fallbackMode;
-            response = fallback.response;
-            data = fallback.data;
-            console.log(
-              `ℹ️ [SYNC] Nenhuma posição em ${currentMode}; modo alterado para ${fallbackMode}.`,
-            );
-          }
-        }
+        // Nota: não alteramos o modo automaticamente — o utilizador escolhe o modo
+        // e ele deve manter-se mesmo sem posições abertas nesse modo.
 
         console.log("📊 [SYNC] PASSO 3: Dados recebidos da API:", {
           mode: activeMode,
@@ -374,20 +358,7 @@ export default function DashboardLayout({
           return;
         }
 
-        if (Array.isArray(data) && data.length === 0) {
-          const fallbackMode: "demo" | "real" =
-            activeMode === "demo" ? "real" : "demo";
-          const fallback = await fetchOpenPositions(fallbackMode);
-          if (
-            fallback.response.ok &&
-            Array.isArray(fallback.data) &&
-            fallback.data.length > 0
-          ) {
-            localStorage.setItem("et_account_mode", fallbackMode);
-            activeMode = fallbackMode;
-            data = fallback.data;
-          }
-        }
+        // Nota: não alteramos o modo automaticamente — o utilizador escolhe o modo.
 
         if (Array.isArray(data)) {
           tradeStore.loadOpenPositions(data);

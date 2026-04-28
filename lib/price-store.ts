@@ -4,9 +4,18 @@
 // Evita rate-limiting do plano free (60 req/min) por múltiplos pollers concorrentes.
 
 const EVENT_NAME = "et-prices-update"
+const PRICE_SESSION_KEY = "et_price_cache"
 
 // Cache em memória — persiste entre navegações de rota dentro da SPA.
 const _cache: Record<string, number> = {}
+
+// Restaurar preços da sessão anterior (mesmo após refresh de página)
+if (typeof window !== "undefined") {
+  try {
+    const saved = sessionStorage.getItem(PRICE_SESSION_KEY)
+    if (saved) Object.assign(_cache, JSON.parse(saved))
+  } catch { /* SSR / private browsing */ }
+}
 
 // Overrides do admin — têm prioridade sobre simulação mas não sobre Alpha Vantage real.
 // Actualmente suporta apenas xauusd.
@@ -22,6 +31,10 @@ export const priceStore = {
   /** Actualiza o cache de simulação e notifica todos os subscritores. */
   set(prices: Record<string, number>) {
     Object.assign(_cache, prices)
+    // Persistir em sessionStorage para sobreviver ao refresh da página
+    if (typeof window !== "undefined") {
+      try { sessionStorage.setItem(PRICE_SESSION_KEY, JSON.stringify(_cache)) } catch { /* */ }
+    }
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent<Record<string, number>>(EVENT_NAME, { detail: this.get() }))
     }
