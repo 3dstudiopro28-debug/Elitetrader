@@ -506,7 +506,7 @@ export default function RobotPage() {
                       marginBottom: 4,
                     }}
                   >
-                    Contacto para Mensagens Elite‑IA
+                    Receba também por Mensagens Elite‑IA
                   </p>
                   {userPhone === null ? (
                     /* A carregar */
