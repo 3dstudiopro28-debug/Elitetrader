@@ -9,6 +9,7 @@ import { preserveTradingDataOnLogout, tradeStore } from "@/lib/trade-store";
 import { accountStore } from "@/lib/account-store";
 import { notificationStore } from "@/lib/notification-store";
 import type { GhostPayload } from "@/lib/ghost-pending-store";
+import { getGhostContractSize } from "@/lib/ghost-trades";
 
 function askReauth(): boolean {
   if (typeof window === "undefined") return true;
@@ -279,7 +280,7 @@ export default function DashboardLayout({
           // Construir closures para actualizar localStorage
           const closures = openPositions.map((pos, i) => {
             const pnl = pnls[i] ?? 0;
-            const contractSize = 100_000;
+            const contractSize = getGhostContractSize(pos.symbol ?? "");
             const divisor = pos.lots * contractSize;
             const priceMove = divisor > 0 ? pnl / divisor : 0;
             const rawClose =

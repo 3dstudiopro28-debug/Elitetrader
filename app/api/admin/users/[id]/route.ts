@@ -35,11 +35,10 @@ export async function GET(
 
   if (hasServiceRole()) {
     const sb = createServerClient();
-    const { data, error } = await sb
-      .from("profiles")
-      .select("*, accounts(*)")
-      .eq("id", id)
-      .single();
+    const [{ data, error }, { data: posData }] = await Promise.all([
+      sb.from("profiles").select("*, accounts(*)").eq("id", id).single(),
+      sb.from("positions").select("status, pnl").eq("user_id", id),
+    ]);
 
     if (error)
       return NextResponse.json(
@@ -47,11 +46,34 @@ export async function GET(
         { status: 404 },
       );
 
+    const openPositions =
+      posData?.filter((p: { status: string }) => p.status === "open").length ??
+      0;
+    const closedPositions =
+      posData?.filter((p: { status: string }) => p.status === "closed")
+        .length ?? 0;
+    const totalPnl =
+      posData
+        ?.filter(
+          (p: { status: string; pnl: number | null }) =>
+            p.status === "closed" && p.pnl != null,
+        )
+        .reduce(
+          (s: number, p: { pnl: number | null }) => s + Number(p.pnl),
+          0,
+        ) ?? 0;
+
     // Adicionar override em memória ao resultado
     const memOv = adminOverrideStore.get(id);
     return NextResponse.json({
       success: true,
-      data: { ...data, _memOverride: memOv },
+      data: {
+        ...data,
+        _memOverride: memOv,
+        open_positions: openPositions,
+        closed_positions: closedPositions,
+        total_pnl: parseFloat(totalPnl.toFixed(2)),
+      },
       source: "supabase",
     });
   }

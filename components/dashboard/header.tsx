@@ -482,7 +482,10 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
             priceStore.getAdminOverride(pos.assetId) === null &&
             !!MARKET_SYMBOL_MAP[pos.assetId],
         )
-        .map((pos) => ({ assetId: pos.assetId, sym: MARKET_SYMBOL_MAP[pos.assetId] }));
+        .map((pos) => ({
+          assetId: pos.assetId,
+          sym: MARKET_SYMBOL_MAP[pos.assetId],
+        }));
 
       // Uma única chamada à proxy interna (max 5 símbolos)
       const syms = entries.map((e) => e.sym).slice(0, 5);
@@ -593,7 +596,7 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       usdcad: 1.3578,
       nzdusd: 0.5924,
       eurjpy: 158.2,
-      xauusd: 3310.0,
+      xauusd: 4628.0,
       xagusd: 32.5,
       brentusd: 66.0,
       wtiusd: 62.5,
@@ -669,22 +672,16 @@ export function DashboardHeader({ onMenuOpen }: { onMenuOpen?: () => void }) {
       const cache = priceStore.get();
       const patch: Record<string, number> = {};
       for (const pos of open) {
-        // Para assets com override admin (ex: xauusd), usar o override como base.
-        // Isto garante que o preço flutua em torno do valor definido pelo admin.
+        // Âncora: override admin tem prioridade absoluta sobre BASE
         const adminOverride = priceStore.getAdminOverride(pos.assetId);
-        // Usar override admin → cache → BASE fallback
-        const base =
-          adminOverride ??
-          cache[pos.assetId] ??
-          BASE[pos.assetId] ??
-          pos.openPrice;
-        const vol = base * (VOL[pos.assetId] ?? DEFAULT_VOL);
-        // Flutuação aleatória ainda mais viva para interface dinâmica.
-        // O poll Finnhub sobrepõe quando há cotação real.
-        patch[pos.assetId] = Math.max(
-          base * 0.1,
-          base + (Math.random() - 0.5) * vol * 0.065,
-        );
+        const anchor = adminOverride ?? BASE[pos.assetId] ?? pos.openPrice;
+        // Random walk a partir do PREÇO ACTUAL (evita saltos para BASE ao reiniciar)
+        const currentPrice = cache[pos.assetId] ?? anchor;
+        const vol = anchor * (VOL[pos.assetId] ?? DEFAULT_VOL);
+        // Mean-reversion suave: 0.5% de pull por tick para não derivar do override/BASE
+        const meanRevert = (anchor - currentPrice) * 0.005;
+        const step = (Math.random() - 0.5) * vol * 0.04 + meanRevert;
+        patch[pos.assetId] = Math.max(anchor * 0.5, currentPrice + step);
       }
       // priceStore.set dispara CustomEvent → u3 subscribe → setStats automático
       if (Object.keys(patch).length) priceStore.set(patch);

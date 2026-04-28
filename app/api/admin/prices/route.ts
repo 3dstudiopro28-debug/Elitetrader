@@ -3,18 +3,32 @@
  * POST   /api/admin/prices   — define/actualiza um override de preço
  * DELETE /api/admin/prices   — remove um override de preço
  *
- * Actualmente suporta apenas XAUUSD.
- * Autenticação: x-admin-token (igual aos outros endpoints admin).
+ * Persistência: Supabase tabela `platform_prices` (cold-start safe).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { adminPriceStore } from "@/lib/admin-price-store";
 import { requireAdmin } from "@/lib/admin-auth";
+import { createServerClient, hasServiceRole } from "@/lib/supabase-server";
+
+/** Carrega overrides do DB para o store em memória (uma só vez por processo). */
+async function hydratePriceStore() {
+  if (!hasServiceRole()) return;
+  if (Object.keys(adminPriceStore.getAll()).length > 0) return; // já hidratado
+  const sb = createServerClient();
+  const { data } = await sb.from("platform_prices").select("asset_id, price");
+  if (data) {
+    for (const row of data) {
+      adminPriceStore.set(row.asset_id, Number(row.price));
+    }
+  }
+}
 
 export async function GET(req: NextRequest) {
   const unauth = await requireAdmin(req);
   if (unauth) return unauth;
 
+  await hydratePriceStore();
   return NextResponse.json({ success: true, prices: adminPriceStore.getAll() });
 }
 
@@ -40,6 +54,22 @@ export async function POST(req: NextRequest) {
       );
     }
     adminPriceStore.set(assetId, numericPrice);
+
+    // Persistir no Supabase (upsert)
+    if (hasServiceRole()) {
+      const sb = createServerClient();
+      await sb
+        .from("platform_prices")
+        .upsert(
+          {
+            asset_id: assetId,
+            price: numericPrice,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "asset_id" },
+        );
+    }
+
     return NextResponse.json({ success: true, assetId, price: numericPrice });
   } catch {
     return NextResponse.json({ error: "Erro interno" }, { status: 500 });
@@ -59,6 +89,13 @@ export async function DELETE(req: NextRequest) {
       );
     }
     adminPriceStore.delete(assetId);
+
+    // Remover do Supabase
+    if (hasServiceRole()) {
+      const sb = createServerClient();
+      await sb.from("platform_prices").delete().eq("asset_id", assetId);
+    }
+
     return NextResponse.json({ success: true, assetId });
   } catch {
     return NextResponse.json({ error: "Erro interno" }, { status: 500 });
