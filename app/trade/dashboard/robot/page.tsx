@@ -220,11 +220,12 @@ export default function RobotPage() {
       >
         <NeuralNetworkBackground opacity={0.45} />
         <div
+          id="app"
           style={{
             maxWidth: 1200,
             margin: "0 auto",
             position: "relative",
-            zIndex: 1,
+            zIndex: 10,
           }}
         >
           {/* HEADER */}
@@ -273,7 +274,7 @@ export default function RobotPage() {
               className="robot-section-r"
               style={{
                 background:
-                  "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
+                  "linear-gradient(135deg, rgba(10,15,40,0.92), rgba(8,13,35,0.95))",
                 border: "1px solid rgba(74,144,226,0.2)",
                 borderRadius: 12,
                 padding: "40px 30px",
@@ -373,7 +374,7 @@ export default function RobotPage() {
             <div
               style={{
                 background:
-                  "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
+                  "linear-gradient(135deg, rgba(10,15,40,0.92), rgba(8,13,35,0.95))",
                 border: "1px solid rgba(74,144,226,0.2)",
                 borderRadius: 12,
                 padding: 30,
@@ -679,7 +680,7 @@ export default function RobotPage() {
                 key={card.title}
                 style={{
                   background:
-                    "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
+                    "linear-gradient(135deg, rgba(10,15,40,0.92), rgba(8,13,35,0.95))",
                   border: "1px solid rgba(74,144,226,0.15)",
                   borderRadius: 12,
                   padding: 20,

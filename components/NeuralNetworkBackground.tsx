@@ -195,18 +195,25 @@ export function NeuralNetworkBackground({ opacity = 0.45 }: Props) {
   }, []);
 
   return (
-    <canvas
-      ref={canvasRef}
+    <div
+      id="bg-effect"
       style={{
         position: "absolute",
         inset: 0,
-        width: "100%",
-        height: "100%",
-        display: "block",
-        opacity,
-        pointerEvents: "none",
         zIndex: 0,
+        pointerEvents: "none",
+        overflow: "hidden",
+        opacity,
       }}
-    />
+    >
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "block",
+        }}
+      />
+    </div>
   );
 }
