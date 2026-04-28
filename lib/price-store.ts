@@ -3,40 +3,50 @@
 // Todos os outros componentes (portfolio, sidebar, etc.) subscrevem este store.
 // Evita rate-limiting do plano free (60 req/min) por múltiplos pollers concorrentes.
 
-const EVENT_NAME = "et-prices-update"
-const PRICE_SESSION_KEY = "et_price_cache"
+const EVENT_NAME = "et-prices-update";
+const PRICE_SESSION_KEY = "et_price_cache";
 
 // Cache em memória — persiste entre navegações de rota dentro da SPA.
-const _cache: Record<string, number> = {}
+const _cache: Record<string, number> = {};
 
 // Restaurar preços da sessão anterior (mesmo após refresh de página)
 if (typeof window !== "undefined") {
   try {
-    const saved = sessionStorage.getItem(PRICE_SESSION_KEY)
-    if (saved) Object.assign(_cache, JSON.parse(saved))
-  } catch { /* SSR / private browsing */ }
+    const saved = sessionStorage.getItem(PRICE_SESSION_KEY);
+    if (saved) Object.assign(_cache, JSON.parse(saved));
+  } catch {
+    /* SSR / private browsing */
+  }
 }
 
 // Overrides do admin — têm prioridade sobre simulação mas não sobre Alpha Vantage real.
 // Actualmente suporta apenas xauusd.
-const _adminOverrides: Record<string, number> = {}
+const _adminOverrides: Record<string, number> = {};
 
 export const priceStore = {
   /** Retorna cópia dos preços actuais (overrides admin em _adminOverrides; simulação em _cache). */
   get(): Record<string, number> {
     // Merge: simulação + overrides admin (admin sobrepõe‚ simulação — aplicado à simulação de 2s)
-    return { ..._cache, ..._adminOverrides }
+    return { ..._cache, ..._adminOverrides };
   },
 
   /** Actualiza o cache de simulação e notifica todos os subscritores. */
   set(prices: Record<string, number>) {
-    Object.assign(_cache, prices)
+    Object.assign(_cache, prices);
     // Persistir em sessionStorage para sobreviver ao refresh da página
     if (typeof window !== "undefined") {
-      try { sessionStorage.setItem(PRICE_SESSION_KEY, JSON.stringify(_cache)) } catch { /* */ }
+      try {
+        sessionStorage.setItem(PRICE_SESSION_KEY, JSON.stringify(_cache));
+      } catch {
+        /* */
+      }
     }
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent<Record<string, number>>(EVENT_NAME, { detail: this.get() }))
+      window.dispatchEvent(
+        new CustomEvent<Record<string, number>>(EVENT_NAME, {
+          detail: this.get(),
+        }),
+      );
     }
   },
 
@@ -48,24 +58,29 @@ export const priceStore = {
   setAdminOverrides(prices: Record<string, number>) {
     // Limpar overrides removidos e actualizar novos
     for (const k of Object.keys(_adminOverrides)) {
-      if (!(k in prices)) delete _adminOverrides[k]
+      if (!(k in prices)) delete _adminOverrides[k];
     }
-    Object.assign(_adminOverrides, prices)
+    Object.assign(_adminOverrides, prices);
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent<Record<string, number>>(EVENT_NAME, { detail: this.get() }))
+      window.dispatchEvent(
+        new CustomEvent<Record<string, number>>(EVENT_NAME, {
+          detail: this.get(),
+        }),
+      );
     }
   },
 
   /** Retorna o override admin de um asset (null se não houver). */
   getAdminOverride(assetId: string): number | null {
-    return _adminOverrides[assetId.toLowerCase()] ?? null
+    return _adminOverrides[assetId.toLowerCase()] ?? null;
   },
 
   /** Subscreve actualizações de preço. Retorna função de cleanup. */
   subscribe(cb: (prices: Record<string, number>) => void): () => void {
-    if (typeof window === "undefined") return () => {}
-    const handler = (e: Event) => cb((e as CustomEvent<Record<string, number>>).detail)
-    window.addEventListener(EVENT_NAME, handler)
-    return () => window.removeEventListener(EVENT_NAME, handler)
+    if (typeof window === "undefined") return () => {};
+    const handler = (e: Event) =>
+      cb((e as CustomEvent<Record<string, number>>).detail);
+    window.addEventListener(EVENT_NAME, handler);
+    return () => window.removeEventListener(EVENT_NAME, handler);
   },
-}
+};

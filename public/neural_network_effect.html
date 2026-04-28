@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural AI Interface PRO</title>
+
+<style>
+body{
+    margin:0;
+    overflow:hidden;
+    background:#020611;
+    font-family:Arial;
+    color:#00d2ff;
+}
+canvas{position:absolute}
+
+#hud{
+    position:absolute;
+    top:20px;
+    left:20px;
+    font-size:12px;
+}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+    AI CORE ACTIVE<br>
+    SIGNAL: <span id="signal">STABLE</span>
+</div>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+let W,H;
+function resize(){
+    W = canvas.width = innerWidth;
+    H = canvas.height = innerHeight;
+}
+window.onresize = resize;
+resize();
+
+const CONFIG = {
+    particles: 140,
+    centers: 6,
+    maxDist: 140,
+    mouseRadius: 180
+};
+
+let mouse = {x:0,y:0,down:false};
+window.onmousemove = e => {mouse.x=e.clientX;mouse.y=e.clientY};
+window.onmousedown = ()=> mouse.down=true;
+window.onmouseup = ()=> mouse.down=false;
+
+class Particle{
+    constructor(center=false){
+        this.center=center;
+        this.x=Math.random()*W;
+        this.y=Math.random()*H;
+        this.vx=(Math.random()-0.5)*0.6;
+        this.vy=(Math.random()-0.5)*0.6;
+        this.baseR=center?4:1.2;
+        this.pulse=Math.random()*Math.PI*2;
+    }
+
+    update(){
+        this.pulse+=0.05;
+
+        let dx = mouse.x - this.x;
+        let dy = mouse.y - this.y;
+        let dist = Math.sqrt(dx*dx+dy*dy);
+
+        if(dist < CONFIG.mouseRadius){
+            let force = (1 - dist/CONFIG.mouseRadius);
+
+            if(mouse.down){
+                // explosão
+                this.vx -= dx*force*0.02;
+                this.vy -= dy*force*0.02;
+            } else {
+                // atração suave
+                this.vx += dx*force*0.002;
+                this.vy += dy*force*0.002;
+            }
+        }
+
+        this.x+=this.vx;
+        this.y+=this.vy;
+
+        this.vx*=0.98;
+        this.vy*=0.98;
+
+        if(this.x<0||this.x>W) this.vx*=-1;
+        if(this.y<0||this.y>H) this.vy*=-1;
+    }
+
+    draw(){
+        let glow = this.center?20:6;
+        let p = Math.sin(this.pulse)*0.5+0.5;
+
+        ctx.beginPath();
+        ctx.arc(this.x,this.y,this.baseR + p*1.5,0,Math.PI*2);
+
+        ctx.fillStyle = this.center
+            ? `rgba(255,255,255,${0.8})`
+            : `rgba(0,210,255,${0.6})`;
+
+        ctx.shadowBlur = glow;
+        ctx.shadowColor = "#00f2ff";
+        ctx.fill();
+    }
+}
+
+let particles=[];
+
+function init(){
+    particles=[];
+    for(let i=0;i<CONFIG.centers;i++)
+        particles.push(new Particle(true));
+    for(let i=0;i<CONFIG.particles;i++)
+        particles.push(new Particle());
+}
+
+function connect(){
+    for(let i=0;i<particles.length;i++){
+        for(let j=i+1;j<particles.length;j++){
+
+            let p1=particles[i];
+            let p2=particles[j];
+
+            let dx=p1.x-p2.x;
+            let dy=p1.y-p2.y;
+            let dist=Math.sqrt(dx*dx+dy*dy);
+
+            if(dist<CONFIG.maxDist){
+
+                let alpha = 1 - dist/CONFIG.maxDist;
+
+                // reforço perto do mouse
+                let mx = (p1.x+p2.x)/2 - mouse.x;
+                let my = (p1.y+p2.y)/2 - mouse.y;
+                let md = Math.sqrt(mx*mx+my*my);
+
+                if(md < CONFIG.mouseRadius){
+                    alpha += 0.3;
+                }
+
+                ctx.strokeStyle=`rgba(0,210,255,${alpha*0.4})`;
+                ctx.lineWidth = p1.center||p2.center?1.5:0.7;
+
+                ctx.beginPath();
+
+                // curva orgânica
+                let cx = (p1.x+p2.x)/2 + Math.sin(p1.pulse)*15;
+                let cy = (p1.y+p2.y)/2 + Math.cos(p2.pulse)*15;
+
+                ctx.moveTo(p1.x,p1.y);
+                ctx.quadraticCurveTo(cx,cy,p2.x,p2.y);
+
+                ctx.stroke();
+            }
+        }
+    }
+}
+
+function drawMouseAura(){
+    let grad = ctx.createRadialGradient(
+        mouse.x,mouse.y,0,
+        mouse.x,mouse.y,CONFIG.mouseRadius
+    );
+    grad.addColorStop(0,"rgba(0,242,255,0.15)");
+    grad.addColorStop(1,"transparent");
+
+    ctx.fillStyle=grad;
+    ctx.beginPath();
+    ctx.arc(mouse.x,mouse.y,CONFIG.mouseRadius,0,Math.PI*2);
+    ctx.fill();
+}
+
+function loop(){
+    // trail suave
+    ctx.fillStyle="rgba(2,6,17,0.25)";
+    ctx.fillRect(0,0,W,H);
+
+    drawMouseAura();
+    connect();
+
+    particles.forEach(p=>{
+        p.update();
+        p.draw();
+    });
+
+    requestAnimationFrame(loop);
+}
+
+init();
+loop();
+</script>
+</body>
+</html>

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
+import { NeuralNetworkBackground } from "@/components/NeuralNetworkBackground";
 
 // ─── Dot pulse loader ─────────────────────────────────────────────────────────
 function PulseDots() {
@@ -89,7 +90,9 @@ export default function RobotPage() {
         .single()
         .then(({ data }) => {
           // Guardar o valor mesmo vazio para distinguir "carregou" de "a carregar"
-          setUserPhone(typeof data?.phone === "string" ? (data.phone.trim() || "") : "");
+          setUserPhone(
+            typeof data?.phone === "string" ? data.phone.trim() || "" : "",
+          );
         })
         .catch(() => setUserPhone(""));
     });
@@ -205,15 +208,25 @@ export default function RobotPage() {
 
       <div
         style={{
+          position: "relative",
           background: "transparent",
           minHeight: "100%",
           padding: "24px 20px",
           color: "#e0e0e0",
           fontFamily:
             "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif",
+          overflow: "hidden",
         }}
       >
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+        <NeuralNetworkBackground opacity={0.45} />
+        <div
+          style={{
+            maxWidth: 1200,
+            margin: "0 auto",
+            position: "relative",
+            zIndex: 1,
+          }}
+        >
           {/* HEADER */}
           <div style={{ marginBottom: 40 }}>
             <h1
@@ -515,12 +528,26 @@ export default function RobotPage() {
                     </p>
                   ) : userPhone === "" ? (
                     /* Registou-se sem número */
-                    <p style={{ color: "rgba(74,144,226,0.45)", fontSize: 12, fontStyle: "italic" }}>
+                    <p
+                      style={{
+                        color: "rgba(74,144,226,0.45)",
+                        fontSize: 12,
+                        fontStyle: "italic",
+                      }}
+                    >
                       Sem contacto registado
                     </p>
                   ) : (
                     /* Número do registo */
-                    <p style={{ color: "#e0e0e0", fontSize: 14, fontWeight: 600, fontFamily: "Courier New, monospace", letterSpacing: 1 }}>
+                    <p
+                      style={{
+                        color: "#e0e0e0",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        fontFamily: "Courier New, monospace",
+                        letterSpacing: 1,
+                      }}
+                    >
                       {userPhone}
                     </p>
                   )}
