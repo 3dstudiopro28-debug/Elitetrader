@@ -1,455 +1,22 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Image from "next/image";
-import {
-  Bot,
-  Lock,
-  Activity,
-  Wifi,
-  Cpu,
-  Shield,
-  ChevronRight,
-  Zap,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-
-// ─── Imagem Robô Elite-IA ────────────────────────────────────────────────────
-function RobotImage({ animated }: { animated: boolean }) {
-  return (
-    <Image
-      src="/robot_ai_icon.png"
-      alt="Elite-IA"
-      width={220}
-      height={220}
-      className="object-contain select-none w-full h-full"
-      style={{
-        filter: animated
-          ? "drop-shadow(0 0 30px rgba(74,144,226,0.85)) brightness(1.08)"
-          : "drop-shadow(0 0 12px rgba(74,144,226,0.3))",
-        transition: "filter 0.4s ease",
-      }}
-      priority
-    />
-  );
-}
-
-// ─── SVG Robô Elite-IA (mantido mas não usado) ───────────────────────────────
-function RobotSVG({ animated }: { animated: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 200 220"
-      xmlns="http://www.w3.org/2000/svg"
-      className="w-full h-full"
-      style={{
-        filter: animated
-          ? "drop-shadow(0 0 28px rgba(74,144,226,0.55))"
-          : "drop-shadow(0 0 14px rgba(74,144,226,0.25))",
-        transition: "filter 0.4s ease",
-      }}
-    >
-      {/* Antenna */}
-      <line
-        x1="100"
-        y1="10"
-        x2="100"
-        y2="32"
-        stroke="#4a90e2"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-      <circle cx="100" cy="7" r="5" fill="#4a90e2">
-        {animated && (
-          <animate
-            attributeName="r"
-            values="5;7;5"
-            dur="1.4s"
-            repeatCount="indefinite"
-          />
-        )}
-        {animated && (
-          <animate
-            attributeName="opacity"
-            values="1;0.5;1"
-            dur="1.4s"
-            repeatCount="indefinite"
-          />
-        )}
-      </circle>
-
-      {/* Head */}
-      <rect
-        x="56"
-        y="32"
-        width="88"
-        height="70"
-        rx="14"
-        ry="14"
-        fill="url(#headGrad)"
-        stroke="rgba(74,144,226,0.6)"
-        strokeWidth="1.5"
-      />
-
-      {/* Eyes */}
-      <rect x="70" y="48" width="22" height="18" rx="5" fill="#0a0e27" />
-      <rect x="108" y="48" width="22" height="18" rx="5" fill="#0a0e27" />
-      {/* Eye glow */}
-      <rect
-        x="70"
-        y="48"
-        width="22"
-        height="18"
-        rx="5"
-        fill="rgba(74,144,226,0.18)"
-      />
-      <rect
-        x="108"
-        y="48"
-        width="22"
-        height="18"
-        rx="5"
-        fill="rgba(74,144,226,0.18)"
-      />
-      <ellipse cx="81" cy="57" rx="6" ry="5" fill="#4a90e2">
-        {animated && (
-          <animate
-            attributeName="fill"
-            values="#4a90e2;#8bb8ff;#4a90e2"
-            dur="2.5s"
-            repeatCount="indefinite"
-          />
-        )}
-      </ellipse>
-      <ellipse cx="119" cy="57" rx="6" ry="5" fill="#4a90e2">
-        {animated && (
-          <animate
-            attributeName="fill"
-            values="#4a90e2;#8bb8ff;#4a90e2"
-            dur="2.5s"
-            repeatCount="indefinite"
-          />
-        )}
-      </ellipse>
-      {/* Eye shine */}
-      <circle cx="84" cy="54" r="2" fill="rgba(255,255,255,0.6)" />
-      <circle cx="122" cy="54" r="2" fill="rgba(255,255,255,0.6)" />
-
-      {/* Mouth */}
-      <rect x="74" y="80" width="52" height="10" rx="5" fill="#0a0e27" />
-      <rect
-        x="76"
-        y="82"
-        width="10"
-        height="6"
-        rx="3"
-        fill="#4a90e2"
-        opacity="0.8"
-      >
-        {animated && (
-          <animate
-            attributeName="opacity"
-            values="0.8;0.3;0.8"
-            dur="0.9s"
-            repeatCount="indefinite"
-          />
-        )}
-      </rect>
-      <rect
-        x="89"
-        y="82"
-        width="10"
-        height="6"
-        rx="3"
-        fill="#4a90e2"
-        opacity="0.5"
-      >
-        {animated && (
-          <animate
-            attributeName="opacity"
-            values="0.5;1;0.5"
-            dur="0.9s"
-            begin="0.3s"
-            repeatCount="indefinite"
-          />
-        )}
-      </rect>
-      <rect
-        x="102"
-        y="82"
-        width="10"
-        height="6"
-        rx="3"
-        fill="#4a90e2"
-        opacity="0.8"
-      >
-        {animated && (
-          <animate
-            attributeName="opacity"
-            values="0.8;0.2;0.8"
-            dur="0.9s"
-            begin="0.6s"
-            repeatCount="indefinite"
-          />
-        )}
-      </rect>
-      <rect
-        x="115"
-        y="82"
-        width="9"
-        height="6"
-        rx="3"
-        fill="#4a90e2"
-        opacity="0.6"
-      >
-        {animated && (
-          <animate
-            attributeName="opacity"
-            values="0.6;1;0.6"
-            dur="0.9s"
-            begin="0.15s"
-            repeatCount="indefinite"
-          />
-        )}
-      </rect>
-
-      {/* Neck */}
-      <rect
-        x="90"
-        y="102"
-        width="20"
-        height="12"
-        rx="4"
-        fill="rgba(74,144,226,0.3)"
-        stroke="rgba(74,144,226,0.4)"
-        strokeWidth="1"
-      />
-
-      {/* Body */}
-      <rect
-        x="42"
-        y="114"
-        width="116"
-        height="78"
-        rx="14"
-        ry="14"
-        fill="url(#bodyGrad)"
-        stroke="rgba(74,144,226,0.5)"
-        strokeWidth="1.5"
-      />
-
-      {/* Chest panel */}
-      <rect
-        x="60"
-        y="124"
-        width="80"
-        height="48"
-        rx="8"
-        fill="rgba(10,14,39,0.7)"
-        stroke="rgba(74,144,226,0.3)"
-        strokeWidth="1"
-      />
-      {/* Chest bars */}
-      <rect
-        x="68"
-        y="132"
-        width="64"
-        height="5"
-        rx="2.5"
-        fill="rgba(74,144,226,0.15)"
-      />
-      <rect
-        x="68"
-        y="132"
-        width="30"
-        height="5"
-        rx="2.5"
-        fill="#4a90e2"
-        opacity="0.7"
-      >
-        {animated && (
-          <animate
-            attributeName="width"
-            values="30;60;30"
-            dur="2.2s"
-            repeatCount="indefinite"
-          />
-        )}
-      </rect>
-      <rect
-        x="68"
-        y="142"
-        width="64"
-        height="5"
-        rx="2.5"
-        fill="rgba(74,144,226,0.15)"
-      />
-      <rect
-        x="68"
-        y="142"
-        width="50"
-        height="5"
-        rx="2.5"
-        fill="#6ba3f5"
-        opacity="0.6"
-      >
-        {animated && (
-          <animate
-            attributeName="width"
-            values="50;20;50"
-            dur="1.8s"
-            repeatCount="indefinite"
-          />
-        )}
-      </rect>
-      <rect
-        x="68"
-        y="152"
-        width="64"
-        height="5"
-        rx="2.5"
-        fill="rgba(74,144,226,0.15)"
-      />
-      <rect
-        x="68"
-        y="152"
-        width="45"
-        height="5"
-        rx="2.5"
-        fill="#4a90e2"
-        opacity="0.5"
-      >
-        {animated && (
-          <animate
-            attributeName="width"
-            values="45;64;45"
-            dur="2.8s"
-            repeatCount="indefinite"
-          />
-        )}
-      </rect>
-
-      {/* Core circle */}
-      <circle
-        cx="100"
-        cy="164"
-        r="9"
-        fill="rgba(74,144,226,0.15)"
-        stroke="rgba(74,144,226,0.5)"
-        strokeWidth="1.5"
-      />
-      <circle cx="100" cy="164" r="5" fill="#4a90e2">
-        {animated && (
-          <animate
-            attributeName="r"
-            values="5;7;5"
-            dur="1.5s"
-            repeatCount="indefinite"
-          />
-        )}
-        {animated && (
-          <animate
-            attributeName="opacity"
-            values="1;0.6;1"
-            dur="1.5s"
-            repeatCount="indefinite"
-          />
-        )}
-      </circle>
-
-      {/* Arms */}
-      <rect
-        x="14"
-        y="118"
-        width="28"
-        height="52"
-        rx="10"
-        fill="url(#armGrad)"
-        stroke="rgba(74,144,226,0.4)"
-        strokeWidth="1"
-      />
-      <rect
-        x="158"
-        y="118"
-        width="28"
-        height="52"
-        rx="10"
-        fill="url(#armGrad)"
-        stroke="rgba(74,144,226,0.4)"
-        strokeWidth="1"
-      />
-      {/* Arm joints */}
-      <circle
-        cx="28"
-        cy="132"
-        r="5"
-        fill="rgba(74,144,226,0.3)"
-        stroke="rgba(74,144,226,0.5)"
-        strokeWidth="1"
-      />
-      <circle
-        cx="172"
-        cy="132"
-        r="5"
-        fill="rgba(74,144,226,0.3)"
-        stroke="rgba(74,144,226,0.5)"
-        strokeWidth="1"
-      />
-
-      {/* Legs */}
-      <rect
-        x="62"
-        y="192"
-        width="28"
-        height="22"
-        rx="8"
-        fill="url(#legGrad)"
-        stroke="rgba(74,144,226,0.4)"
-        strokeWidth="1"
-      />
-      <rect
-        x="110"
-        y="192"
-        width="28"
-        height="22"
-        rx="8"
-        fill="url(#legGrad)"
-        stroke="rgba(74,144,226,0.4)"
-        strokeWidth="1"
-      />
-
-      {/* Gradients */}
-      <defs>
-        <linearGradient id="headGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(74,144,226,0.18)" />
-          <stop offset="100%" stopColor="rgba(26,77,158,0.12)" />
-        </linearGradient>
-        <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(74,144,226,0.15)" />
-          <stop offset="100%" stopColor="rgba(26,77,158,0.10)" />
-        </linearGradient>
-        <linearGradient id="armGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="rgba(74,144,226,0.12)" />
-          <stop offset="100%" stopColor="rgba(26,77,158,0.08)" />
-        </linearGradient>
-        <linearGradient id="legGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(74,144,226,0.15)" />
-          <stop offset="100%" stopColor="rgba(26,77,158,0.08)" />
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-}
 
 // ─── Dot pulse loader ─────────────────────────────────────────────────────────
 function PulseDots() {
   return (
-    <span className="flex gap-1">
+    <span style={{ display: "inline-flex", gap: "4px" }}>
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="w-1.5 h-1.5 rounded-full bg-[#4a90e2]"
           style={{
-            animation: `dotBlink 1.5s ease-in-out infinite`,
+            width: 6,
+            height: 6,
+            background: "#4a90e2",
+            borderRadius: "50%",
+            display: "inline-block",
+            animation: "dotBlink 1.5s ease-in-out infinite",
             animationDelay: `${i * 0.3}s`,
           }}
         />
@@ -458,19 +25,49 @@ function PulseDots() {
   );
 }
 
-// ─── Progress bar ─────────────────────────────────────────────────────────────
-function AnimatedBar({ delay = "0s" }: { delay?: string }) {
+// ─── Barra de progresso animada ───────────────────────────────────────────────
+function AnimatedBar() {
   return (
-    <div className="w-full h-1 rounded-full bg-[rgba(74,144,226,0.1)] overflow-hidden">
+    <div
+      style={{
+        width: "100%",
+        height: 4,
+        background: "rgba(74,144,226,0.1)",
+        borderRadius: 2,
+        overflow: "hidden",
+        marginTop: 6,
+      }}
+    >
       <div
-        className="h-full rounded-full bg-gradient-to-r from-[#4a90e2] to-[#6ba3f5]"
         style={{
+          height: "100%",
+          background: "linear-gradient(90deg, #4a90e2, #6ba3f5)",
+          borderRadius: 2,
           boxShadow: "0 0 8px rgba(74,144,226,0.5)",
-          animation: `dataReading 4s ease-in-out infinite`,
-          animationDelay: delay,
+          animation: "dataReading 4s ease-in-out infinite",
         }}
       />
     </div>
+  );
+}
+
+// ─── Status dot ───────────────────────────────────────────────────────────────
+function StatusDot({ type }: { type: "active" | "loading" }) {
+  return (
+    <span
+      style={{
+        width: 12,
+        height: 12,
+        borderRadius: "50%",
+        flexShrink: 0,
+        display: "inline-block",
+        background: type === "active" ? "#4ade80" : "#fbbf24",
+        animation:
+          type === "active"
+            ? "pulseGreen 2s ease-in-out infinite"
+            : "pulseYellow 1.2s ease-in-out infinite",
+      }}
+    />
   );
 }
 
@@ -478,13 +75,6 @@ export default function RobotPage() {
   const [serial, setSerial] = useState("");
   const [status, setStatus] = useState<"idle" | "invalid">("idle");
   const [robotHovered, setRobotHovered] = useState(false);
-  const [tick, setTick] = useState(0);
-
-  // Contador de tick para animação de colunas
-  useEffect(() => {
-    const iv = setInterval(() => setTick((t) => t + 1), 2000);
-    return () => clearInterval(iv);
-  }, []);
 
   function handleActivate() {
     if (!serial.trim()) return;
@@ -502,375 +92,283 @@ export default function RobotPage() {
 
   return (
     <>
-      {/* Keyframe styles */}
       <style>{`
         @keyframes dotBlink {
-          0%, 100% { opacity: 0.3; }
-          50% { opacity: 1; }
+          0%, 100% { opacity: 0.4; }
+          50%       { opacity: 1; }
         }
         @keyframes dataReading {
           0%   { width: 0%; }
           25%  { width: 35%; }
-          50%  { width: 72%; }
-          75%  { width: 44%; }
+          50%  { width: 70%; }
+          75%  { width: 45%; }
           100% { width: 0%; }
         }
         @keyframes pulseGreen {
-          0%, 100% { box-shadow: 0 0 4px rgba(74, 212, 128, 0.4); }
-          50% { box-shadow: 0 0 12px rgba(74, 212, 128, 0.9); }
+          0%, 100% { box-shadow: 0 0 4px rgba(74,212,128,0.4); }
+          50%       { box-shadow: 0 0 12px rgba(74,212,128,0.8); }
         }
         @keyframes pulseYellow {
-          0%, 100% { box-shadow: 0 0 4px rgba(251, 191, 36, 0.4); }
-          50% { box-shadow: 0 0 12px rgba(251, 191, 36, 0.9); }
+          0%, 100% { box-shadow: 0 0 4px rgba(251,191,36,0.4); }
+          50%       { box-shadow: 0 0 12px rgba(251,191,36,0.8); }
         }
         @keyframes shakeX {
           0%, 100% { transform: translateX(0); }
-          20% { transform: translateX(-6px); }
-          40% { transform: translateX(6px); }
-          60% { transform: translateX(-4px); }
-          80% { transform: translateX(4px); }
+          20%       { transform: translateX(-6px); }
+          40%       { transform: translateX(6px); }
+          60%       { transform: translateX(-4px); }
+          80%       { transform: translateX(4px); }
         }
         @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(10px); }
+          from { opacity: 0; transform: translateY(8px); }
           to   { opacity: 1; transform: translateY(0); }
+        }
+        .serial-input-style {
+          flex: 1;
+          background: rgba(74,144,226,0.08);
+          border: 1px solid rgba(74,144,226,0.3);
+          border-radius: 8px;
+          padding: 12px 14px;
+          color: #fff;
+          font-size: 13px;
+          font-family: Courier New, monospace;
+          letter-spacing: 1px;
+          transition: all 0.3s ease;
+          outline: none;
+        }
+        .serial-input-style::placeholder { color: rgba(74,144,226,0.4); }
+        .serial-input-style:focus {
+          background: rgba(74,144,226,0.12);
+          border-color: rgba(74,144,226,0.6);
+          box-shadow: 0 0 12px rgba(74,144,226,0.2);
+        }
+        .serial-input-invalid {
+          background: rgba(239,68,68,0.1) !important;
+          border-color: rgba(239,68,68,0.6) !important;
+          animation: shakeX 0.5s ease;
+        }
+        .activate-btn-style {
+          width: 100%;
+          background: linear-gradient(135deg, #4a90e2, #6ba3f5);
+          border: 1px solid rgba(74,144,226,0.6);
+          border-radius: 8px;
+          padding: 12px 20px;
+          color: #fff;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          letter-spacing: 0.5px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          box-shadow: 0 4px 12px rgba(74,144,226,0.25);
+          transition: all 0.3s ease;
+        }
+        .activate-btn-style:hover {
+          background: linear-gradient(135deg, #6ba3f5, #8bb8ff);
+          box-shadow: 0 6px 16px rgba(74,144,226,0.38);
+          transform: translateY(-2px);
+        }
+        .activate-btn-style:active { transform: translateY(0); }
+        .status-item-hover { transition: border-color 0.3s ease, background 0.3s ease; }
+        .status-item-hover:hover {
+          border-color: rgba(74,144,226,0.35) !important;
+          background: rgba(74,144,226,0.08) !important;
+        }
+        @media (max-width: 768px) {
+          .main-grid-r { grid-template-columns: 1fr !important; }
+          .robot-section-r { min-height: 300px !important; }
+          .robot-icon-r { width: 140px !important; height: 140px !important; }
+          .page-title-r { font-size: 24px !important; }
         }
       `}</style>
 
-      <div className="min-h-full p-4 md:p-6 space-y-6">
-        {/* ── Header ──────────────────────────────────────────── */}
-        <div>
-          <h1 className="text-2xl md:text-3xl font-semibold text-foreground flex items-center gap-3">
-            <span
-              className="inline-block w-1 h-7 rounded-full"
-              style={{ background: "#4a90e2" }}
-            />
-            <Bot className="w-7 h-7" style={{ color: "#4a90e2" }} />
-            Elite‑IA
-          </h1>
-          <p className="text-sm mt-1" style={{ color: "#8b92a9" }}>
-            Sistema autónomo de análise e execução com inteligência artificial
-          </p>
-        </div>
+      <div
+        style={{
+          background: "#0a0e27",
+          minHeight: "100%",
+          padding: "24px 20px",
+          color: "#e0e0e0",
+          fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif",
+        }}
+      >
+        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
 
-        {/* ── Main Grid ──────────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* LEFT — Robot visual */}
-          <div
-            className="rounded-2xl flex flex-col items-center justify-center p-8 min-h-[380px] text-center cursor-default"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(74,144,226,0.06), rgba(26,77,158,0.06))",
-              border: "1px solid rgba(74,144,226,0.2)",
-            }}
-            onMouseEnter={() => setRobotHovered(true)}
-            onMouseLeave={() => setRobotHovered(false)}
-          >
-            <div className="w-48 h-48 select-none">
-              <RobotImage animated={robotHovered} />
-            </div>
-
-            <div className="mt-6 flex items-center gap-2">
-              <span
-                className="text-base font-semibold"
-                style={{ color: "#4a90e2" }}
-              >
-                Elite‑IA
-              </span>
-              <PulseDots />
-            </div>
-            <p className="text-xs mt-2" style={{ color: "#8b92a9" }}>
-              Motor de inteligência artificial · v2.4.1
+          {/* HEADER */}
+          <div style={{ marginBottom: 40 }}>
+            <h1
+              className="page-title-r"
+              style={{ fontSize: 32, fontWeight: 600, color: "#fff", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}
+            >
+              <span style={{ display: "inline-block", width: 4, height: 28, background: "#4a90e2", borderRadius: 2, flexShrink: 0 }} />
+              Análise I.A.
+            </h1>
+            <p style={{ color: "#8b92a9", fontSize: 14 }}>
+              Sistema de análise em tempo real com sinais técnicos avançados
             </p>
-
-            {/* Spec chips */}
-            <div className="flex flex-wrap justify-center gap-2 mt-5">
-              {[
-                { icon: <Zap className="w-3 h-3" />, label: "Alta Frequência" },
-                { icon: <Activity className="w-3 h-3" />, label: "Tempo Real" },
-                { icon: <Shield className="w-3 h-3" />, label: "Protegido" },
-              ].map((chip) => (
-                <span
-                  key={chip.label}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium"
-                  style={{
-                    background: "rgba(74,144,226,0.1)",
-                    border: "1px solid rgba(74,144,226,0.25)",
-                    color: "#6ba3f5",
-                  }}
-                >
-                  {chip.icon}
-                  {chip.label}
-                </span>
-              ))}
-            </div>
           </div>
 
-          {/* RIGHT — Activation panel */}
+          {/* MAIN GRID */}
           <div
-            className="rounded-2xl p-6 flex flex-col gap-5"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
-              border: "1px solid rgba(74,144,226,0.2)",
-            }}
+            className="main-grid-r"
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 30, marginBottom: 40 }}
           >
-            {/* Panel header */}
-            <div className="flex items-center gap-3">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{
-                  background: "rgba(74,144,226,0.15)",
-                  border: "1px solid rgba(74,144,226,0.4)",
-                }}
-              >
-                <Cpu className="w-4 h-4" style={{ color: "#4a90e2" }} />
-              </div>
-              <span className="text-sm font-semibold text-foreground flex-1">
-                Painel de Activação
-              </span>
-              <PulseDots />
-            </div>
-
-            {/* Serial input */}
-            <div className="space-y-2">
-              <label
-                className="block text-[11px] font-semibold uppercase tracking-wider"
-                style={{ color: "#4a90e2" }}
-              >
-                Número de Série / Token
-              </label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="text"
-                  value={serial}
-                  onChange={handleSerialChange}
-                  placeholder="XXXX-XXXX-XXXX"
-                  className={cn(
-                    "flex-1 rounded-lg px-3 py-3 text-sm font-mono tracking-widest text-white placeholder:text-[rgba(74,144,226,0.35)] outline-none transition-all duration-200",
-                    isInvalid
-                      ? "bg-red-500/10 border border-red-500/60 focus:border-red-400"
-                      : "focus:border-[rgba(74,144,226,0.6)] focus:shadow-[0_0_12px_rgba(74,144,226,0.2)]",
-                  )}
-                  style={
-                    !isInvalid
-                      ? {
-                          background: "rgba(74,144,226,0.08)",
-                          border: "1px solid rgba(74,144,226,0.3)",
-                          animation: undefined,
-                        }
-                      : {
-                          animation: "shakeX 0.5s ease",
-                        }
-                  }
-                  onKeyDown={(e) => e.key === "Enter" && handleActivate()}
-                />
-                <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{
-                    background: "rgba(74,144,226,0.1)",
-                    border: "1px solid rgba(74,144,226,0.3)",
-                    color: "#4a90e2",
-                  }}
-                >
-                  <Lock className="w-4 h-4" />
-                </div>
-              </div>
-
-              {/* Error message */}
-              {isInvalid && (
-                <div
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold"
-                  style={{
-                    background: "rgba(239,68,68,0.12)",
-                    border: "1px solid rgba(239,68,68,0.35)",
-                    color: "#f87171",
-                    animation: "fadeInUp 0.25s ease",
-                  }}
-                >
-                  <span className="text-base leading-none">✕</span>
-                  Token Inválido · NS Invalid — Série não reconhecida
-                </div>
-              )}
-            </div>
-
-            {/* Activate button */}
-            <button
-              onClick={handleActivate}
-              className="w-full rounded-lg py-3 text-sm font-semibold text-white tracking-wide flex items-center justify-center gap-2 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
+            {/* LEFT — Robot Section */}
+            <div
+              className="robot-section-r"
               style={{
-                background: "linear-gradient(135deg, #4a90e2, #6ba3f5)",
-                border: "1px solid rgba(74,144,226,0.6)",
-                boxShadow: "0 4px 14px rgba(74,144,226,0.25)",
+                background: "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
+                border: "1px solid rgba(74,144,226,0.2)",
+                borderRadius: 12,
+                padding: "40px 30px",
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                alignItems: "center",
+                minHeight: 400,
               }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.boxShadow =
-                  "0 6px 18px rgba(74,144,226,0.4)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.boxShadow =
-                  "0 4px 14px rgba(74,144,226,0.25)")
-              }
+              onMouseEnter={() => setRobotHovered(true)}
+              onMouseLeave={() => setRobotHovered(false)}
             >
-              <Zap className="w-4 h-4" />
-              ATIVAR SISTEMA
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            {/* System status */}
-            <div className="space-y-3">
-              <p
-                className="text-[11px] font-semibold uppercase tracking-wider"
-                style={{ color: "#4a90e2" }}
+              <div
+                className="robot-icon-r"
+                style={{ width: 200, height: 200, marginBottom: 30, display: "flex", justifyContent: "center", alignItems: "center" }}
               >
-                Status do Sistema
+                <Image
+                  src="/robot_ai_icon.png"
+                  alt="Elite-IA"
+                  width={200}
+                  height={200}
+                  style={{
+                    objectFit: "contain",
+                    userSelect: "none",
+                    filter: robotHovered
+                      ? "drop-shadow(0 0 30px rgba(74,144,226,0.55)) brightness(1.06)"
+                      : "drop-shadow(0 0 20px rgba(74,144,226,0.3))",
+                    transition: "filter 0.3s ease",
+                  }}
+                  priority
+                />
+              </div>
+              <div style={{ marginTop: 0, fontSize: 16, fontWeight: 600, color: "#4a90e2", letterSpacing: "0.5px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                Elite-IA <PulseDots />
+              </div>
+              <p style={{ color: "#8b92a9", fontSize: 13, marginTop: 12, lineHeight: 1.5 }}>
+                Motor de inteligência artificial · v2.4.1
               </p>
+              <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8, marginTop: 20 }}>
+                {["⚡ Alta Frequência", "📊 Tempo Real", "🛡️ Protegido"].map((label) => (
+                  <span key={label} style={{ background: "rgba(74,144,226,0.1)", border: "1px solid rgba(74,144,226,0.25)", color: "#6ba3f5", borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: 500 }}>
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
 
-              {/* Conexão */}
-              <div
-                className="flex items-center gap-3 rounded-lg px-3 py-3 transition-all duration-200 hover:border-[rgba(74,144,226,0.35)]"
-                style={{
-                  background: "rgba(74,144,226,0.05)",
-                  border: "1px solid rgba(74,144,226,0.15)",
-                }}
-              >
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{
-                    background: "rgba(74,144,226,0.12)",
-                    border: "1px solid rgba(74,144,226,0.3)",
-                  }}
-                >
-                  <Wifi className="w-4 h-4" style={{ color: "#4a90e2" }} />
+            {/* RIGHT — Activation Panel */}
+            <div
+              style={{
+                background: "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
+                border: "1px solid rgba(74,144,226,0.2)",
+                borderRadius: 12,
+                padding: 30,
+                display: "flex",
+                flexDirection: "column",
+                gap: 20,
+              }}
+            >
+              {/* Panel header */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 32, height: 32, background: "rgba(74,144,226,0.2)", border: "1px solid rgba(74,144,226,0.5)", borderRadius: 8, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 18 }}>
+                  🤖
                 </div>
-                <div className="flex-1 text-xs font-medium text-foreground/80">
-                  Conexão com Servidor
-                </div>
-                <span
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{
-                    background: "#4ade80",
-                    animation: "pulseGreen 2s ease-in-out infinite",
-                  }}
-                />
+                <span style={{ fontSize: 16, fontWeight: 600, color: "#fff", letterSpacing: "0.5px", flex: 1 }}>
+                  Painel de Activação
+                </span>
+                <PulseDots />
               </div>
 
-              {/* Leitura de dados */}
-              <div
-                className="flex items-center gap-3 rounded-lg px-3 py-3"
-                style={{
-                  background: "rgba(74,144,226,0.05)",
-                  border: "1px solid rgba(74,144,226,0.15)",
-                }}
-              >
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{
-                    background: "rgba(74,144,226,0.12)",
-                    border: "1px solid rgba(74,144,226,0.3)",
-                  }}
-                >
-                  <Activity className="w-4 h-4" style={{ color: "#4a90e2" }} />
+              {/* Serial input */}
+              <div>
+                <label style={{ display: "block", color: "#4a90e2", fontSize: 12, fontWeight: 600, marginBottom: 8, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                  Número de Série / Token
+                </label>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <input
+                    type="text"
+                    value={serial}
+                    onChange={handleSerialChange}
+                    onKeyDown={(e) => e.key === "Enter" && handleActivate()}
+                    placeholder="XXXX-XXXX-XXXX"
+                    className={"serial-input-style" + (isInvalid ? " serial-input-invalid" : "")}
+                  />
+                  <div style={{ width: 36, height: 36, background: "rgba(74,144,226,0.1)", border: "1px solid rgba(74,144,226,0.3)", borderRadius: 8, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 16, flexShrink: 0 }}>
+                    🔒
+                  </div>
                 </div>
-                <div className="flex-1 space-y-1.5">
-                  <p className="text-xs font-medium text-foreground/80">
-                    Leitura de Dados do Mercado
-                  </p>
-                  <AnimatedBar />
-                </div>
-                <span
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{
-                    background: "#fbbf24",
-                    animation: "pulseYellow 1.2s ease-in-out infinite",
-                  }}
-                />
+                {isInvalid && (
+                  <div style={{ marginTop: 8, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#f87171", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, animation: "fadeInUp 0.25s ease" }}>
+                    <span>✕</span> Token Inválido — Número de série não reconhecido
+                  </div>
+                )}
               </div>
 
-              {/* Motor IA */}
-              <div
-                className="flex items-center gap-3 rounded-lg px-3 py-3"
-                style={{
-                  background: "rgba(74,144,226,0.05)",
-                  border: "1px solid rgba(74,144,226,0.15)",
-                }}
-              >
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{
-                    background: "rgba(74,144,226,0.12)",
-                    border: "1px solid rgba(74,144,226,0.3)",
-                  }}
-                >
-                  <Cpu className="w-4 h-4" style={{ color: "#4a90e2" }} />
+              {/* Activate button */}
+              <button className="activate-btn-style" onClick={handleActivate}>
+                <span>⚡</span>
+                <span>ATIVAR SISTEMA</span>
+              </button>
+
+              {/* Status */}
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "#4a90e2", marginBottom: 15, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                  Status do Sistema
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {[
+                    { emoji: "📡", label: "Conexão com Servidor", type: "active" as const, bar: false },
+                    { emoji: "🔄", label: "Leitura de Dados do Mercado", type: "loading" as const, bar: true },
+                    { emoji: "🧠", label: "Motor de IA Pronto", type: "active" as const, bar: false },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="status-item-hover"
+                      style={{ background: "rgba(74,144,226,0.05)", border: "1px solid rgba(74,144,226,0.15)", borderRadius: 8, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}
+                    >
+                      <div style={{ width: 32, height: 32, background: "rgba(74,144,226,0.15)", border: "1px solid rgba(74,144,226,0.4)", borderRadius: 6, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 16, flexShrink: 0 }}>
+                        {item.emoji}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ color: "#e0e0e0", fontSize: 13, fontWeight: 500, margin: 0 }}>{item.label}</p>
+                        {item.bar && <AnimatedBar />}
+                      </div>
+                      <StatusDot type={item.type} />
+                    </div>
+                  ))}
                 </div>
-                <div className="flex-1 text-xs font-medium text-foreground/80">
-                  Motor de IA Pronto
-                </div>
-                <span
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{
-                    background: "#4ade80",
-                    animation: "pulseGreen 2s ease-in-out infinite",
-                    animationDelay: "0.5s",
-                  }}
-                />
               </div>
             </div>
           </div>
-        </div>
 
-        {/* ── Info cards ──────────────────────────────────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[
-            {
-              icon: (
-                <Activity className="w-5 h-5" style={{ color: "#4a90e2" }} />
-              ),
-              title: "Análise Técnica",
-              desc: "Indicadores RSI, MACD, Bandas de Bollinger e mais de 20 sinais automáticos.",
-            },
-            {
-              icon: <Zap className="w-5 h-5" style={{ color: "#4a90e2" }} />,
-              title: "Execução Rápida",
-              desc: "Ordens executadas em milissegundos com gestão de risco integrada.",
-            },
-            {
-              icon: <Shield className="w-5 h-5" style={{ color: "#4a90e2" }} />,
-              title: "Proteção Avançada",
-              desc: "Stop-loss dinâmico e controlo de drawdown para proteger o seu capital.",
-            },
-          ].map((card) => (
-            <div
-              key={card.title}
-              className="rounded-2xl p-5 space-y-3"
-              style={{
-                background:
-                  "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
-                border: "1px solid rgba(74,144,226,0.15)",
-              }}
-            >
-              <div
-                className="w-9 h-9 rounded-lg flex items-center justify-center"
-                style={{
-                  background: "rgba(74,144,226,0.12)",
-                  border: "1px solid rgba(74,144,226,0.3)",
-                }}
-              >
-                {card.icon}
+          {/* INFO CARDS */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
+            {[
+              { emoji: "📈", title: "Análise Técnica", desc: "Indicadores RSI, MACD, Bandas de Bollinger e mais de 20 sinais automáticos." },
+              { emoji: "⚡", title: "Execução Rápida", desc: "Ordens executadas em milissegundos com gestão de risco integrada." },
+              { emoji: "🛡️", title: "Proteção Avançada", desc: "Stop-loss dinâmico e controlo de drawdown para proteger o seu capital." },
+            ].map((card) => (
+              <div key={card.title} style={{ background: "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))", border: "1px solid rgba(74,144,226,0.15)", borderRadius: 12, padding: 20 }}>
+                <div style={{ width: 36, height: 36, background: "rgba(74,144,226,0.12)", border: "1px solid rgba(74,144,226,0.3)", borderRadius: 8, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 18, marginBottom: 12 }}>
+                  {card.emoji}
+                </div>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "#fff", marginBottom: 6 }}>{card.title}</p>
+                <p style={{ fontSize: 12, color: "#8b92a9", lineHeight: 1.6, margin: 0 }}>{card.desc}</p>
               </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  {card.title}
-                </p>
-                <p
-                  className="text-xs mt-1 leading-relaxed"
-                  style={{ color: "#8b92a9" }}
-                >
-                  {card.desc}
-                </p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
+
         </div>
       </div>
     </>
