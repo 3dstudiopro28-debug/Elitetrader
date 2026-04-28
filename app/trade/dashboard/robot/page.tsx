@@ -78,7 +78,7 @@ export default function RobotPage() {
   const [robotHovered, setRobotHovered] = useState(false);
   const [userPhone, setUserPhone] = useState<string | null>(null);
 
-  // Buscar telefone do utilizador
+  // Buscar telefone do registo do utilizador (profiles.phone)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.user?.id) return;
@@ -88,9 +88,10 @@ export default function RobotPage() {
         .eq("id", session.user.id)
         .single()
         .then(({ data }) => {
-          if (data?.phone) setUserPhone(data.phone as string);
+          // Guardar o valor mesmo vazio para distinguir "carregou" de "a carregar"
+          setUserPhone(typeof data?.phone === "string" ? (data.phone.trim() || "") : "");
         })
-        .catch(() => {});
+        .catch(() => setUserPhone(""));
     });
   }, []);
 
@@ -208,18 +209,35 @@ export default function RobotPage() {
           minHeight: "100%",
           padding: "24px 20px",
           color: "#e0e0e0",
-          fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif",
+          fontFamily:
+            "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif",
         }}
       >
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-
           {/* HEADER */}
           <div style={{ marginBottom: 40 }}>
             <h1
               className="page-title-r"
-              style={{ fontSize: 32, fontWeight: 600, color: "#fff", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}
+              style={{
+                fontSize: 32,
+                fontWeight: 600,
+                color: "#fff",
+                marginBottom: 10,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}
             >
-              <span style={{ display: "inline-block", width: 4, height: 28, background: "#4a90e2", borderRadius: 2, flexShrink: 0 }} />
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 4,
+                  height: 28,
+                  background: "#4a90e2",
+                  borderRadius: 2,
+                  flexShrink: 0,
+                }}
+              />
               Análise I.A.
             </h1>
             <p style={{ color: "#8b92a9", fontSize: 14 }}>
@@ -230,13 +248,19 @@ export default function RobotPage() {
           {/* MAIN GRID */}
           <div
             className="main-grid-r"
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 30, marginBottom: 40 }}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 30,
+              marginBottom: 40,
+            }}
           >
             {/* LEFT — Robot Section */}
             <div
               className="robot-section-r"
               style={{
-                background: "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
+                background:
+                  "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
                 border: "1px solid rgba(74,144,226,0.2)",
                 borderRadius: 12,
                 padding: "40px 30px",
@@ -252,7 +276,14 @@ export default function RobotPage() {
             >
               <div
                 className="robot-icon-r"
-                style={{ width: 200, height: 200, marginBottom: 30, display: "flex", justifyContent: "center", alignItems: "center" }}
+                style={{
+                  width: 200,
+                  height: 200,
+                  marginBottom: 30,
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
               >
                 <Image
                   src="/robot_ai_icon.png"
@@ -270,25 +301,66 @@ export default function RobotPage() {
                   priority
                 />
               </div>
-              <div style={{ marginTop: 0, fontSize: 16, fontWeight: 600, color: "#4a90e2", letterSpacing: "0.5px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <div
+                style={{
+                  marginTop: 0,
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: "#4a90e2",
+                  letterSpacing: "0.5px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
                 Elite-IA <PulseDots />
               </div>
-              <p style={{ color: "#8b92a9", fontSize: 13, marginTop: 12, lineHeight: 1.5 }}>
+              <p
+                style={{
+                  color: "#8b92a9",
+                  fontSize: 13,
+                  marginTop: 12,
+                  lineHeight: 1.5,
+                }}
+              >
                 Motor de inteligência artificial · v2.4.1
               </p>
-              <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8, marginTop: 20 }}>
-                {["⚡ Alta Frequência", "📊 Tempo Real", "🛡️ Protegido"].map((label) => (
-                  <span key={label} style={{ background: "rgba(74,144,226,0.1)", border: "1px solid rgba(74,144,226,0.25)", color: "#6ba3f5", borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: 500 }}>
-                    {label}
-                  </span>
-                ))}
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  justifyContent: "center",
+                  gap: 8,
+                  marginTop: 20,
+                }}
+              >
+                {["⚡ Alta Frequência", "📊 Tempo Real", "🛡️ Protegido"].map(
+                  (label) => (
+                    <span
+                      key={label}
+                      style={{
+                        background: "rgba(74,144,226,0.1)",
+                        border: "1px solid rgba(74,144,226,0.25)",
+                        color: "#6ba3f5",
+                        borderRadius: 20,
+                        padding: "4px 10px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                      }}
+                    >
+                      {label}
+                    </span>
+                  ),
+                )}
               </div>
             </div>
 
             {/* RIGHT — Activation Panel */}
             <div
               style={{
-                background: "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
+                background:
+                  "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
                 border: "1px solid rgba(74,144,226,0.2)",
                 borderRadius: 12,
                 padding: 30,
@@ -299,10 +371,30 @@ export default function RobotPage() {
             >
               {/* Panel header */}
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 32, height: 32, background: "rgba(74,144,226,0.2)", border: "1px solid rgba(74,144,226,0.5)", borderRadius: 8, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 18 }}>
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    background: "rgba(74,144,226,0.2)",
+                    border: "1px solid rgba(74,144,226,0.5)",
+                    borderRadius: 8,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    fontSize: 18,
+                  }}
+                >
                   🤖
                 </div>
-                <span style={{ fontSize: 16, fontWeight: 600, color: "#fff", letterSpacing: "0.5px", flex: 1 }}>
+                <span
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 600,
+                    color: "#fff",
+                    letterSpacing: "0.5px",
+                    flex: 1,
+                  }}
+                >
                   Painel de Activação
                 </span>
                 <PulseDots />
@@ -310,7 +402,17 @@ export default function RobotPage() {
 
               {/* Serial input */}
               <div>
-                <label style={{ display: "block", color: "#4a90e2", fontSize: 12, fontWeight: 600, marginBottom: 8, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                <label
+                  style={{
+                    display: "block",
+                    color: "#4a90e2",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginBottom: 8,
+                    letterSpacing: "0.5px",
+                    textTransform: "uppercase",
+                  }}
+                >
                   Número de Série / Token
                 </label>
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -320,15 +422,47 @@ export default function RobotPage() {
                     onChange={handleSerialChange}
                     onKeyDown={(e) => e.key === "Enter" && handleActivate()}
                     placeholder="XXXX-XXXX-XXXX"
-                    className={"serial-input-style" + (isInvalid ? " serial-input-invalid" : "")}
+                    className={
+                      "serial-input-style" +
+                      (isInvalid ? " serial-input-invalid" : "")
+                    }
                   />
-                  <div style={{ width: 36, height: 36, background: "rgba(74,144,226,0.1)", border: "1px solid rgba(74,144,226,0.3)", borderRadius: 8, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 16, flexShrink: 0 }}>
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      background: "rgba(74,144,226,0.1)",
+                      border: "1px solid rgba(74,144,226,0.3)",
+                      borderRadius: 8,
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      fontSize: 16,
+                      flexShrink: 0,
+                    }}
+                  >
                     🔒
                   </div>
                 </div>
                 {isInvalid && (
-                  <div style={{ marginTop: 8, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#f87171", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, animation: "fadeInUp 0.25s ease" }}>
-                    <span>✕</span> Token Inválido — Número de série não reconhecido
+                  <div
+                    style={{
+                      marginTop: 8,
+                      background: "rgba(239,68,68,0.12)",
+                      border: "1px solid rgba(239,68,68,0.35)",
+                      color: "#f87171",
+                      borderRadius: 8,
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      animation: "fadeInUp 0.25s ease",
+                    }}
+                  >
+                    <span>✕</span> Token Inválido — Número de série não
+                    reconhecido
                   </div>
                 )}
               </div>
@@ -345,20 +479,49 @@ export default function RobotPage() {
                   gap: 12,
                 }}
               >
-                <div style={{ width: 32, height: 32, background: "rgba(74,144,226,0.15)", border: "1px solid rgba(74,144,226,0.4)", borderRadius: 6, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 16, flexShrink: 0 }}>
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    background: "rgba(74,144,226,0.15)",
+                    border: "1px solid rgba(74,144,226,0.4)",
+                    borderRadius: 6,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    fontSize: 16,
+                    flexShrink: 0,
+                  }}
+                >
                   📱
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ color: "#4a90e2", fontSize: 11, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 4 }}>
+                  <p
+                    style={{
+                      color: "#4a90e2",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: "0.5px",
+                      textTransform: "uppercase",
+                      marginBottom: 4,
+                    }}
+                  >
                     Contacto para Mensagens Elite‑IA
                   </p>
-                  {userPhone ? (
-                    <p style={{ color: "#e0e0e0", fontSize: 14, fontWeight: 600, fontFamily: "Courier New, monospace", letterSpacing: 1 }}>
-                      {userPhone}
+                  {userPhone === null ? (
+                    /* A carregar */
+                    <p style={{ color: "rgba(74,144,226,0.4)", fontSize: 12 }}>
+                      <PulseDots />
+                    </p>
+                  ) : userPhone === "" ? (
+                    /* Registou-se sem número */
+                    <p style={{ color: "rgba(74,144,226,0.45)", fontSize: 12, fontStyle: "italic" }}>
+                      Sem contacto registado
                     </p>
                   ) : (
-                    <p style={{ color: "rgba(74,144,226,0.5)", fontSize: 12, fontStyle: "italic" }}>
-                      Sem número registado
+                    /* Número do registo */
+                    <p style={{ color: "#e0e0e0", fontSize: 14, fontWeight: 600, fontFamily: "Courier New, monospace", letterSpacing: 1 }}>
+                      {userPhone}
                     </p>
                   )}
                   <p style={{ color: "#8b92a9", fontSize: 11, marginTop: 3 }}>
@@ -375,25 +538,81 @@ export default function RobotPage() {
 
               {/* Status */}
               <div>
-                <p style={{ fontSize: 14, fontWeight: 600, color: "#4a90e2", marginBottom: 15, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                <p
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "#4a90e2",
+                    marginBottom: 15,
+                    letterSpacing: "0.5px",
+                    textTransform: "uppercase",
+                  }}
+                >
                   Status do Sistema
                 </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                >
                   {[
-                    { emoji: "📡", label: "Conexão com Servidor", type: "active" as const, bar: false },
-                    { emoji: "🔄", label: "Leitura de Dados do Mercado", type: "loading" as const, bar: true },
-                    { emoji: "🧠", label: "Motor de IA Pronto", type: "active" as const, bar: false },
+                    {
+                      emoji: "📡",
+                      label: "Conexão com Servidor",
+                      type: "active" as const,
+                      bar: false,
+                    },
+                    {
+                      emoji: "🔄",
+                      label: "Leitura de Dados do Mercado",
+                      type: "loading" as const,
+                      bar: true,
+                    },
+                    {
+                      emoji: "🧠",
+                      label: "Motor de IA Pronto",
+                      type: "active" as const,
+                      bar: false,
+                    },
                   ].map((item) => (
                     <div
                       key={item.label}
                       className="status-item-hover"
-                      style={{ background: "rgba(74,144,226,0.05)", border: "1px solid rgba(74,144,226,0.15)", borderRadius: 8, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}
+                      style={{
+                        background: "rgba(74,144,226,0.05)",
+                        border: "1px solid rgba(74,144,226,0.15)",
+                        borderRadius: 8,
+                        padding: "12px 14px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                      }}
                     >
-                      <div style={{ width: 32, height: 32, background: "rgba(74,144,226,0.15)", border: "1px solid rgba(74,144,226,0.4)", borderRadius: 6, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 16, flexShrink: 0 }}>
+                      <div
+                        style={{
+                          width: 32,
+                          height: 32,
+                          background: "rgba(74,144,226,0.15)",
+                          border: "1px solid rgba(74,144,226,0.4)",
+                          borderRadius: 6,
+                          display: "flex",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          fontSize: 16,
+                          flexShrink: 0,
+                        }}
+                      >
                         {item.emoji}
                       </div>
                       <div style={{ flex: 1 }}>
-                        <p style={{ color: "#e0e0e0", fontSize: 13, fontWeight: 500, margin: 0 }}>{item.label}</p>
+                        <p
+                          style={{
+                            color: "#e0e0e0",
+                            fontSize: 13,
+                            fontWeight: 500,
+                            margin: 0,
+                          }}
+                        >
+                          {item.label}
+                        </p>
                         {item.bar && <AnimatedBar />}
                       </div>
                       <StatusDot type={item.type} />
@@ -405,22 +624,79 @@ export default function RobotPage() {
           </div>
 
           {/* INFO CARDS */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gap: 20,
+            }}
+          >
             {[
-              { emoji: "📈", title: "Análise Técnica", desc: "Indicadores RSI, MACD, Bandas de Bollinger e mais de 20 sinais automáticos." },
-              { emoji: "⚡", title: "Execução Rápida", desc: "Ordens executadas em milissegundos com gestão de risco integrada." },
-              { emoji: "🛡️", title: "Proteção Avançada", desc: "Stop-loss dinâmico e controlo de drawdown para proteger o seu capital." },
+              {
+                emoji: "📈",
+                title: "Análise Técnica",
+                desc: "Indicadores RSI, MACD, Bandas de Bollinger e mais de 20 sinais automáticos.",
+              },
+              {
+                emoji: "⚡",
+                title: "Execução Rápida",
+                desc: "Ordens executadas em milissegundos com gestão de risco integrada.",
+              },
+              {
+                emoji: "🛡️",
+                title: "Proteção Avançada",
+                desc: "Stop-loss dinâmico e controlo de drawdown para proteger o seu capital.",
+              },
             ].map((card) => (
-              <div key={card.title} style={{ background: "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))", border: "1px solid rgba(74,144,226,0.15)", borderRadius: 12, padding: 20 }}>
-                <div style={{ width: 36, height: 36, background: "rgba(74,144,226,0.12)", border: "1px solid rgba(74,144,226,0.3)", borderRadius: 8, display: "flex", justifyContent: "center", alignItems: "center", fontSize: 18, marginBottom: 12 }}>
+              <div
+                key={card.title}
+                style={{
+                  background:
+                    "linear-gradient(135deg, rgba(74,144,226,0.05), rgba(26,77,158,0.05))",
+                  border: "1px solid rgba(74,144,226,0.15)",
+                  borderRadius: 12,
+                  padding: 20,
+                }}
+              >
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    background: "rgba(74,144,226,0.12)",
+                    border: "1px solid rgba(74,144,226,0.3)",
+                    borderRadius: 8,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    fontSize: 18,
+                    marginBottom: 12,
+                  }}
+                >
                   {card.emoji}
                 </div>
-                <p style={{ fontSize: 14, fontWeight: 600, color: "#fff", marginBottom: 6 }}>{card.title}</p>
-                <p style={{ fontSize: 12, color: "#8b92a9", lineHeight: 1.6, margin: 0 }}>{card.desc}</p>
+                <p
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "#fff",
+                    marginBottom: 6,
+                  }}
+                >
+                  {card.title}
+                </p>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "#8b92a9",
+                    lineHeight: 1.6,
+                    margin: 0,
+                  }}
+                >
+                  {card.desc}
+                </p>
               </div>
             ))}
           </div>
-
         </div>
       </div>
     </>
