@@ -133,6 +133,7 @@ export function DashboardSidebar({
       icon: Activity,
       items: [
         { label: t.dashboard.navTechnical, href: "/trade/dashboard/analysis" },
+        { label: t.dashboard.navRobot, href: "/trade/dashboard/robot" },
       ],
     },
   ];

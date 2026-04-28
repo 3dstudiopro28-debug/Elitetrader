@@ -111,7 +111,9 @@ async function fetchMarketItemPrice(item: MarketItem): Promise<number | null> {
     );
     if (!res.ok) return null;
     const data = await res.json();
-    const price = (data.prices as Record<string, number | null>)?.[item.marketSymbol];
+    const price = (data.prices as Record<string, number | null>)?.[
+      item.marketSymbol
+    ];
     return typeof price === "number" && price > 0 ? price : null;
   } catch {
     return null;

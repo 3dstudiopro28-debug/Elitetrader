@@ -173,13 +173,11 @@ function getEffectiveSpread(asset: Asset): number {
 }
 
 function getBidAsk(asset: Asset, tickPrice: number, effectiveSpread: number) {
-  // Para ouro com override ativo, usar o preço definido pelo admin como centro
-  // e forçar uma diferença visível entre bid/ask.
+  // Ouro com override admin: ask = preço do admin, bid = preço - $10
+  // Garante que compra/venda é coerente com o gráfico de mercado.
   if (asset.id === "xauusd" && priceStore.getAdminOverride("xauusd") !== null) {
-    const forcedSpread = Math.max(effectiveSpread, tickPrice * 0.0025); // ~0.25%
-    const half = forcedSpread / 2;
-    const bid = tickPrice - half;
-    const ask = tickPrice + half;
+    const ask = tickPrice;
+    const bid = tickPrice - 10;
     return { bid, ask };
   }
 
@@ -279,8 +277,8 @@ const ASSETS: Asset[] = [
     symbol: "XAUUSD",
     name: "Ouro vs Dolar americano",
     category: ["metals", "popular", "mostTraded", "commodities"],
-    basePrice: 3310.0,
-    spread: 0.1,
+    basePrice: 4628.0,
+    spread: 0.5,
     leverage: 20,
     digits: 2,
     icon: "🥇",
@@ -831,9 +829,9 @@ function ChartModal({
   const [pendingPrice, setPendingPrice] = useState("");
 
   // Preço com micro-fluctuação para display (apenas quando mercado aberto)
-  const tickPrice = useTickPrice(price, asset.spread, isLive);
-  const bid = tickPrice;
-  const ask = tickPrice + asset.spread;
+  const effectiveSpreadModal = getEffectiveSpread(asset);
+  const tickPrice = useTickPrice(price, effectiveSpreadModal, isLive);
+  const { bid, ask } = getBidAsk(asset, tickPrice, effectiveSpreadModal);
   const displayPrice = tradeType === "buy" ? ask : bid;
   const amountNum = parseFloat(amount) || 100;
   const lotsNum = parseFloat(lots) || 0.01;
@@ -901,10 +899,13 @@ function ChartModal({
       setTimeout(() => setToast(null), 3000);
       return;
     }
-    // Executa ao preço exibido (tickPrice) — o que o utilizador vê é o que é executado
-    const bid = tickPrice;
-    const ask = tickPrice + asset.spread;
-    const execPrice = tradeType === "buy" ? ask : bid;
+    // Executa ao preço exibido — o que o utilizador vê é o que é executado
+    const { bid: execBid, ask: execAsk } = getBidAsk(
+      asset,
+      tickPrice,
+      getEffectiveSpread(asset),
+    );
+    const execPrice = tradeType === "buy" ? execAsk : execBid;
     const cs = getContractSize(asset);
     const lotsN =
       tab === "amount"
